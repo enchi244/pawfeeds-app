@@ -1,16 +1,19 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React from 'react';
+import { collection, DocumentData, onSnapshot, query } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
 import {
-    Alert,
+    ActivityIndicator,
     FlatList,
     Image,
+    ListRenderItem,
     StyleSheet,
     Text,
     TouchableOpacity,
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { db } from '../../firebaseConfig'; // Import our database instance
 
 const COLORS = {
   primary: '#8C6E63',
@@ -21,25 +24,58 @@ const COLORS = {
   white: '#FFFFFF',
 };
 
-// Sample data - we will replace this with Firebase data later
-const samplePets = [
-  { id: '1', name: 'Buddy', photoUrl: 'https://placehold.co/100x100/A0522D/FFFFFF?text=B' },
-  { id: '2', name: 'Lucy', photoUrl: 'https://placehold.co/100x100/8C6E63/FFFFFF?text=L' },
-];
-
-// To test the empty state, use this instead:
-// const samplePets = [];
+interface Pet {
+  id: string;
+  name: string;
+  photoUrl: string;
+}
 
 export default function PetsScreen() {
   const router = useRouter();
+  const [pets, setPets] = useState<Pet[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // IMPORTANT: Replace this with your actual feeder ID from the Firebase console
+    const feederId = "eNFJODJ5YP1t3lw77WJG";
+    
+    // Create a reference to the 'pets' sub-collection
+    const petsCollectionRef = collection(db, 'feeders', feederId, 'pets');
+    const q = query(petsCollectionRef);
+
+    // Set up the real-time listener
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const petsData: Pet[] = [];
+      querySnapshot.forEach((doc: DocumentData) => {
+        petsData.push({
+          id: doc.id,
+          ...doc.data(),
+        } as Pet);
+      });
+      setPets(petsData);
+      setLoading(false);
+    });
+
+    // This is a cleanup function that runs when the screen is unmounted
+    return () => unsubscribe();
+  }, []);
 
   const handleAddPet = () => {
-    // We will navigate to the "Add Pet" screen here in a future step
-    Alert.alert('Add Pet', 'This will open the screen to add a new pet profile.');
+    router.push({
+      pathname: "/pet/[id]",
+      params: { id: 'new' }
+    });
+  };
+  
+  const handleEditPet = (petId: string) => {
+    router.push({
+      pathname: "/pet/[id]",
+      params: { id: petId }
+    });
   };
 
-  const renderPetItem = ({ item }) => (
-    <TouchableOpacity style={styles.petItem}>
+  const renderPetItem: ListRenderItem<Pet> = ({ item }) => (
+    <TouchableOpacity style={styles.petItem} onPress={() => handleEditPet(item.id)}>
       <Image source={{ uri: item.photoUrl }} style={styles.petPhoto} />
       <Text style={styles.petName}>{item.name}</Text>
     </TouchableOpacity>
@@ -51,15 +87,17 @@ export default function PetsScreen() {
         <Text style={styles.headerTitle}>My Pets</Text>
       </View>
 
-      {samplePets.length === 0 ? (
+      {loading ? (
+        <ActivityIndicator size="large" color={COLORS.primary} style={{ marginTop: 50 }} />
+      ) : pets.length === 0 ? (
         <View style={styles.emptyContainer}>
           <MaterialCommunityIcons name="dog" size={80} color={COLORS.lightGray} />
           <Text style={styles.emptyText}>No pets added yet.</Text>
-          <Text style={styles.emptySubText}>Tap the + button to add your first pet!</Text>
+          <Text style={styles.emptySubText}>{"Tap the '+' button to add your first pet!"}</Text>
         </View>
       ) : (
         <FlatList
-          data={samplePets}
+          data={pets}
           renderItem={renderPetItem}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContainer}
@@ -74,83 +112,15 @@ export default function PetsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  header: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: COLORS.white,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.lightGray,
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: COLORS.primary,
-  },
-  listContainer: {
-    padding: 20,
-  },
-  petItem: {
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  petPhoto: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    marginRight: 16,
-    backgroundColor: COLORS.lightGray,
-  },
-  petName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.text,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  emptyText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#aaa',
-    marginTop: 16,
-  },
-  emptySubText: {
-    fontSize: 16,
-    color: '#bbb',
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  fab: {
-    position: 'absolute',
-    right: 20,
-    bottom: 20,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: COLORS.accent,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 6,
-  },
+  container: { flex: 1, backgroundColor: COLORS.background },
+  header: { paddingHorizontal: 20, paddingVertical: 16, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray, alignItems: 'center' },
+  headerTitle: { fontSize: 24, fontWeight: 'bold', color: COLORS.primary },
+  listContainer: { padding: 20 },
+  petItem: { backgroundColor: COLORS.white, borderRadius: 12, padding: 16, flexDirection: 'row', alignItems: 'center', marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  petPhoto: { width: 60, height: 60, borderRadius: 30, marginRight: 16, backgroundColor: COLORS.lightGray },
+  petName: { fontSize: 18, fontWeight: '600', color: COLORS.text },
+  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  emptyText: { fontSize: 20, fontWeight: 'bold', color: '#aaa', marginTop: 16 },
+  emptySubText: { fontSize: 16, color: '#bbb', marginTop: 8, textAlign: 'center' },
+  fab: { position: 'absolute', right: 20, bottom: 20, width: 60, height: 60, borderRadius: 30, backgroundColor: COLORS.accent, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 5, elevation: 6 },
 });
