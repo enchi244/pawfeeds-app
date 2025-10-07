@@ -107,6 +107,7 @@ export default function DashboardScreen() {
   const [selectedBowlForAction, setSelectedBowlForAction] = useState<number | null>(null);
   const [customAmount, setCustomAmount] = useState('');
   
+  const [isCustomFeedVisible, setIsCustomFeedVisible] = useState(false);
   const [selectedPetInBowl, setSelectedPetInBowl] = useState<{[bowlId: string]: string | undefined}>({});
   
   const feederId = "eNFJODJ5YP1t3lw77WJG";
@@ -222,6 +223,7 @@ export default function DashboardScreen() {
 
   const handleOpenFeedModal = (bowlNumber: number) => {
     setSelectedBowlForAction(bowlNumber);
+    setIsCustomFeedVisible(false); // Reset custom feed view on open
     setIsFeedModalVisible(true);
   };
 
@@ -345,23 +347,28 @@ export default function DashboardScreen() {
 
       {/* Feed Now Modal */}
       <Modal visible={isFeedModalVisible} transparent={true} animationType="fade" onRequestClose={() => setIsFeedModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-                <Text style={styles.modalTitle}>Manual Feed</Text>
-                <Text style={styles.modalSubtitle}>Dispense food from Bowl {selectedBowlForAction} for {feedModalData?.pet?.name || 'N/A'}.</Text>
+        <TouchableOpacity style={styles.modalOverlay} onPress={() => setIsFeedModalVisible(false)} activeOpacity={1}>
+            <TouchableOpacity activeOpacity={1} style={styles.selectionModalContent}>
+                {/* The content of the modal is now wrapped to prevent closing when tapped inside */}
+                <View style={{padding: 2, alignItems: 'center', width: '100%'}}>
                 <TouchableOpacity style={[styles.modalButton, !feedModalData?.perMealPortion && styles.disabledButton]} onPress={() => handleDispenseFeed(feedModalData?.perMealPortion || 0)} disabled={!feedModalData?.perMealPortion}>
                     <Text style={styles.modalButtonText}>{`Dispense Meal (${feedModalData?.perMealPortion || 0}g)`}</Text>
                 </TouchableOpacity>
-                <Text style={styles.modalDivider}>OR</Text>
-                <TextInput style={styles.modalInput} placeholder="Enter custom amount (grams)" keyboardType="number-pad" value={customAmount} onChangeText={setCustomAmount} />
-                <TouchableOpacity style={[styles.modalButton, !customAmount && styles.disabledButton]} onPress={() => handleDispenseFeed(parseInt(customAmount, 10))} disabled={!customAmount}>
-                    <Text style={styles.modalButtonText}>Dispense Custom</Text>
+                <TouchableOpacity style={styles.customFeedToggle} onPress={() => setIsCustomFeedVisible(!isCustomFeedVisible)}>
+                    <Text style={styles.customFeedToggleText}>Custom Amount</Text>
+                    <MaterialCommunityIcons name={isCustomFeedVisible ? "chevron-up" : "chevron-down"} size={24} color={COLORS.text} />
                 </TouchableOpacity>
-                 <TouchableOpacity style={[styles.modalButton, styles.cancelButton]} onPress={() => setIsFeedModalVisible(false)}>
-                    <Text style={[styles.modalButtonText, styles.cancelButtonText]}>Cancel</Text>
-                </TouchableOpacity>
-            </View>
-        </View>
+                {isCustomFeedVisible && (
+                    <View style={styles.customFeedContainer}>
+                        <TextInput style={styles.modalInput} placeholder="Input Amount Here" placeholderTextColor="#999" keyboardType="number-pad" value={customAmount} onChangeText={setCustomAmount} />
+                        <TouchableOpacity style={[styles.modalButton, !customAmount && styles.disabledButton]} onPress={() => handleDispenseFeed(parseInt(customAmount, 10))} disabled={!customAmount}>
+                            <Text style={styles.modalButtonText}>Dispense Custom</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+                </View>
+            </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* Pet Filter Modal */}
@@ -434,11 +441,15 @@ const styles = StyleSheet.create({
   menuLogoutButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, marginTop: 20 },
   menuLogoutText: { fontSize: 18, fontWeight: '500', color: COLORS.danger, marginLeft: 15 },
   modalContent: { width: '85%', backgroundColor: COLORS.white, borderRadius: 16, padding: 24, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
+  modalTitle: { fontSize: 20, fontWeight: 'bold', color: COLORS.primary, marginBottom: 16, textAlign: 'center' },
   modalSubtitle: { fontSize: 16, color: COLORS.text, marginBottom: 24, textAlign: 'center' },
   modalButton: { backgroundColor: COLORS.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', width: '100%', marginBottom: 12 },
   modalButtonText: { fontSize: 16, fontWeight: 'bold', color: COLORS.white },
   modalDivider: { color: '#aaa', fontWeight: 'bold', marginVertical: 8 },
   modalInput: { width: '100%', backgroundColor: COLORS.background, borderWidth: 1, borderColor: COLORS.lightGray, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: COLORS.text, textAlign: 'center', marginVertical: 12 },
+  customFeedToggle: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.lightGray, marginVertical: 12 },
+  customFeedToggleText: { fontSize: 16, fontWeight: '600', color: COLORS.text },
+  customFeedContainer: { width: '100%', alignItems: 'center' },
   cancelButton: { backgroundColor: 'transparent' },
   cancelButtonText: { color: COLORS.danger, fontWeight: '600' },
   unassignButton: { backgroundColor: COLORS.danger, borderWidth: 0},
