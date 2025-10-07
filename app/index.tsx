@@ -1,7 +1,7 @@
+import { useRouter } from 'expo-router'; // 1. Import the router hook
 import React from 'react';
 import {
   Alert,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
@@ -9,22 +9,23 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-// --- Color Palette ---
 const COLORS = {
-  primary: '#8C6E63', // Kibble Brown
-  accent: '#FFC107', // Golden Hour Yellow
-  background: '#F5F5F5', // Soft Cream
-  text: '#333333', // Charcoal Gray
+  primary: '#8C6E63',
+  accent: '#FFC107',
+  background: '#F5F5FF',
+  text: '#333333',
   lightGray: '#E0E0E0',
   white: '#FFFFFF',
 };
 
-// --- Main Login Screen Component ---
 export default function LoginScreen() {
-  // --- Event Handlers (will be implemented later) ---
+  const router = useRouter(); // 2. Get the router object
+
   const handleLogin = () => {
-    Alert.alert('Login Pressed', 'Firebase login logic will go here.');
+    // 3. Navigate to the tabs layout
+    router.replace('/(tabs)');
   };
 
   const handleCreateAccount = () => {
@@ -41,18 +42,15 @@ export default function LoginScreen() {
     );
   };
 
-  // --- Rendered UI ---
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
       <View style={styles.content}>
-        {/* --- Header Section --- */}
         <View style={styles.header}>
           <Text style={styles.logo}>PawFeeds</Text>
           <Text style={styles.tagline}>Your pets personal chef.</Text>
         </View>
 
-        {/* --- Form Section --- */}
         <View style={styles.form}>
           <TextInput
             style={styles.input}
@@ -72,10 +70,8 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* --- Or Divider --- */}
         <Text style={styles.dividerText}>OR</Text>
 
-        {/* --- Social & Other Actions Section --- */}
         <View style={styles.actions}>
           <TouchableOpacity
             style={styles.buttonSecondary}
@@ -93,7 +89,6 @@ export default function LoginScreen() {
   );
 }
 
-// --- Stylesheet ---
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -173,4 +168,3 @@ const styles = StyleSheet.create({
     color: COLORS.text,
   },
 });
-
