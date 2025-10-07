@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { db } from '../../firebaseConfig';
+import { recalculatePortionsForPet } from '../../utils/portionLogic';
 
 const COLORS = {
   primary: '#8C6E63',
@@ -63,69 +64,50 @@ export default function PetProfileScreen() {
   const [recommendedPortion, setRecommendedPortion] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
 
-  // IMPORTANT: Replace this with your actual feeder ID from the Firebase console
   const feederId = "eNFJODJ5YP1t3lw77WJG";
 
   useEffect(() => {
     const fetchPetData = async () => {
       if (isEditing && id) {
         setIsLoading(true);
-        try {
-            const petDocRef = doc(db, 'feeders', feederId, 'pets', id);
-            const docSnap = await getDoc(petDocRef);
-            if (docSnap.exists()) {
-              const petData = docSnap.data();
-              setName(petData.name || '');
-              setAge(petData.age ? petData.age.toString() : '');
-              setWeight(petData.weight ? petData.weight.toString() : '');
-              setKcal(petData.kcal ? petData.kcal.toString() : '');
-              setNeuterStatus(petData.neuterStatus || 'Neutered/Spayed');
-              setActivityLevel(petData.activityLevel || 'Normal');
-              // When editing, we should populate recommendedPortion from the saved data if it exists
-              setRecommendedPortion(petData.recommendedPortion || 0); 
-            } else {
-                Alert.alert('Error', 'Pet profile not found.');
-                router.back();
-            }
-        } catch (error) {
-            console.error("Error fetching pet data: ", error);
-            Alert.alert('Error', 'There was a problem fetching the pet profile.');
-            router.back();
-        } finally {
-            setIsLoading(false);
+        const petDocRef = doc(db, 'feeders', feederId, 'pets', id);
+        const docSnap = await getDoc(petDocRef);
+        if (docSnap.exists()) {
+          const petData = docSnap.data();
+          setName(petData.name || '');
+          setAge(petData.age ? petData.age.toString() : '');
+          setWeight(petData.weight ? petData.weight.toString() : '');
+          setKcal(petData.kcal ? petData.kcal.toString() : '');
+          setNeuterStatus(petData.neuterStatus || 'Neutered/Spayed');
+          setActivityLevel(petData.activityLevel || 'Normal');
+          setRecommendedPortion(petData.recommendedPortion || 0);
         }
+        setIsLoading(false);
       }
     };
     fetchPetData();
-  }, [id, isEditing, router]);
+  }, [id, isEditing]);
 
   useEffect(() => {
     const calculatePortion = () => {
       const weightKg = parseFloat(weight);
       const foodKcal = parseFloat(kcal);
-
       if (isNaN(weightKg) || weightKg <= 0 || isNaN(foodKcal) || foodKcal <= 0) {
         setRecommendedPortion(0);
         return;
       }
-
-      // Resting Energy Requirement (RER)
       const rer = 70 * Math.pow(weightKg, 0.75);
-
-      // Maintenance Energy Requirement (MER) factor
-      let merFactor = 1.6; // Default for normal, neutered adult
+      let merFactor = 1.6;
       if (neuterStatus === 'Neutered/Spayed') {
         if (activityLevel === 'Low') merFactor = 1.2;
         if (activityLevel === 'High') merFactor = 1.8;
-      } else { // Intact
+      } else {
         if (activityLevel === 'Low') merFactor = 1.4;
         if (activityLevel === 'Normal') merFactor = 1.8;
         if (activityLevel === 'High') merFactor = 3.0;
       }
-
       const mer = rer * merFactor;
       const dailyGrams = (mer / foodKcal) * 100;
-
       setRecommendedPortion(Math.round(dailyGrams));
     };
     calculatePortion();
@@ -145,23 +127,19 @@ export default function PetProfileScreen() {
       kcal: parseInt(kcal, 10),
       neuterStatus,
       activityLevel,
-      recommendedPortion, // Ensure recommendedPortion is always included
+      recommendedPortion, // Save the calculated portion
     };
 
     try {
       if (isEditing && id) {
-        // Update existing document
         const petDocRef = doc(db, 'feeders', feederId, 'pets', id);
-        await updateDoc(petDocRef, petData); // Use petData directly
+        await updateDoc(petDocRef, petData);
+        await recalculatePortionsForPet(id); // Recalculate portions on update
         Alert.alert('Pet Updated!', `Profile for ${name} has been updated.`);
       } else {
-        // Add new document
         const petsCollectionRef = collection(db, 'feeders', feederId, 'pets');
-        const finalPetData = {
-            ...petData, 
-            photoUrl: 'https://firebasestorage.googleapis.com/v0/b/pawfeeds-app.appspot.com/o/pet_place.png?alt=media&token=1432243_placeholder'
-        };
-        await addDoc(petsCollectionRef, finalPetData);
+        const newPetRef = await addDoc(petsCollectionRef, petData);
+        await recalculatePortionsForPet(newPetRef.id); // Recalculate portions for new pet
         Alert.alert('Pet Saved!', `Profile for ${name} has been created.`);
       }
       router.back();
@@ -182,10 +160,11 @@ export default function PetProfileScreen() {
         { 
           text: 'Delete', 
           style: 'destructive', 
-          onPress: async () => { 
+          onPress: async () => {
             if (isEditing && id) {
               setIsLoading(true);
               try {
+                // Note: Consider deleting associated schedules or reassigning them in a real app
                 const petDocRef = doc(db, 'feeders', feederId, 'pets', id);
                 await deleteDoc(petDocRef);
                 Alert.alert('Pet Deleted', `${name}'s profile has been removed.`);
@@ -199,12 +178,11 @@ export default function PetProfileScreen() {
             }
           }
         },
-      ],
-      { cancelable: true }
+      ]
     );
   };
   
-  if (isLoading && isEditing) {
+  if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={COLORS.primary} />
@@ -255,16 +233,12 @@ export default function PetProfileScreen() {
           <Text style={styles.resultSubtext}>per day, based on veterinary formulas.</Text>
         </View>
 
-        <TouchableOpacity style={[styles.saveButton, isLoading && styles.disabledButton]} onPress={handleSave} disabled={isLoading}>
-            {isLoading ? (
-                <ActivityIndicator color={COLORS.text} />
-            ) : (
-                <Text style={styles.saveButtonText}>{isEditing ? 'Update Pet' : 'Save Pet'}</Text>
-            )}
+        <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
+          <Text style={styles.saveButtonText}>{isEditing ? 'Update Pet' : 'Save Pet'}</Text>
         </TouchableOpacity>
         
         {isEditing && (
-          <TouchableOpacity style={[styles.deleteButton, isLoading && styles.disabledButton]} onPress={handleDelete} disabled={isLoading}>
+          <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
             <Text style={styles.deleteButtonText}>Delete Pet</Text>
           </TouchableOpacity>
         )}
@@ -278,7 +252,7 @@ const styles = StyleSheet.create({
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray },
     headerTitle: { fontSize: 20, fontWeight: 'bold', color: COLORS.primary },
-    scrollContent: { padding: 20 },
+    scrollContent: { padding: 20, paddingBottom: 40 },
     photoContainer: { width: 120, height: 120, borderRadius: 12, borderWidth: 2, borderColor: COLORS.lightGray, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', alignSelf: 'center', marginBottom: 24, backgroundColor: COLORS.white },
     label: { fontSize: 16, fontWeight: '600', color: COLORS.text, marginBottom: 8, marginTop: 16 },
     input: { backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.lightGray, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: COLORS.text },
@@ -297,5 +271,4 @@ const styles = StyleSheet.create({
     saveButtonText: { fontSize: 16, fontWeight: 'bold', color: COLORS.text },
     deleteButton: { paddingVertical: 16, alignItems: 'center', marginTop: 16 },
     deleteButtonText: { fontSize: 16, fontWeight: 'bold', color: COLORS.danger },
-    disabledButton: { opacity: 0.5 },
 });

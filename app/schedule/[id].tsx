@@ -4,21 +4,22 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { addDoc, collection, deleteDoc, doc, DocumentData, getDoc, getDocs, query, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Modal,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    useColorScheme,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  useColorScheme,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { db } from '../../firebaseConfig';
+import { recalculatePortionsForPet } from '../../utils/portionLogic'; // 1. Import our utility function
 
 const COLORS = {
   primary: '#8C6E63',
@@ -38,7 +39,6 @@ interface Pet {
   name: string;
 }
 
-// A more robust time parsing function using regex
 const parseTimeString = (timeString: string): Date => {
   const now = new Date();
   if (!timeString || typeof timeString !== 'string') {
@@ -47,7 +47,7 @@ const parseTimeString = (timeString: string): Date => {
 
   const parts = timeString.match(/(\d+):(\d+)\s+(AM|PM)/i);
   if (!parts) {
-    return new Date('invalid'); // Return an invalid date if format is wrong
+    return new Date('invalid');
   }
 
   let [, hoursStr, minutesStr, modifier] = parts;
@@ -60,7 +60,7 @@ const parseTimeString = (timeString: string): Date => {
     hours += 12;
   }
   if (modifier === 'AM' && hours === 12) {
-    hours = 0; // Midnight case
+    hours = 0;
   }
 
   now.setHours(hours, minutes, 0, 0);
@@ -95,7 +95,6 @@ export default function ScheduleProfileScreen() {
     const fetchInitialData = async () => {
       setIsLoading(true);
       
-      // Fetch pets
       try {
         const petsCollectionRef = collection(db, 'feeders', feederId, 'pets');
         const q = query(petsCollectionRef);
@@ -106,7 +105,6 @@ export default function ScheduleProfileScreen() {
         });
         setPets(petsData);
 
-        // If editing, fetch schedule data
         if (isEditing && id) {
           const scheduleDocRef = doc(db, 'feeders', feederId, 'schedules', id);
           const docSnap = await getDoc(scheduleDocRef);
@@ -123,8 +121,9 @@ export default function ScheduleProfileScreen() {
                 const dayIndices = data.repeatDays.map(dayLetter => DAYS.indexOf(dayLetter)).filter(index => index !== -1);
                 setSelectedDays(dayIndices);
             }
-            // Set selected pet and bowl from loaded data
-            const pet = petsData.find(p => p.name === data.petName);
+            
+            // 2. Use the more reliable petId to find the selected pet
+            const pet = petsData.find(p => p.id === data.petId);
             setSelectedPet(pet || null);
             setSelectedBowl(data.bowlNumber || null);
           }
@@ -142,7 +141,7 @@ export default function ScheduleProfileScreen() {
 
 
   const onTimeChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
-    setShowTimePicker(Platform.OS === 'ios'); // Keep visible on iOS until 'Done'
+    setShowTimePicker(Platform.OS === 'ios');
     if (event.type === 'set' && selectedDate) {
       setDate(selectedDate);
     }
@@ -170,13 +169,16 @@ export default function ScheduleProfileScreen() {
     }
     
     setIsLoading(true);
+    // 3. Add petId and portionGrams to the data being saved
     const scheduleData = {
       name,
       time: formatTime(date),
       repeatDays: selectedDays.sort((a, b) => a - b).map(index => DAYS[index]),
+      petId: selectedPet.id,
       petName: selectedPet.name,
       bowlNumber: selectedBowl,
       isEnabled: true,
+      portionGrams: 0, // Default to 0, will be updated by the recalculation
     };
 
     try {
@@ -189,6 +191,10 @@ export default function ScheduleProfileScreen() {
         await addDoc(schedulesCollectionRef, scheduleData);
         Alert.alert('Schedule Saved');
       }
+      
+      // 4. Trigger the portion recalculation after saving
+      await recalculatePortionsForPet(selectedPet.id);
+
       router.back();
     } catch (error) {
       console.error("Error saving schedule: ", error);
@@ -208,11 +214,15 @@ export default function ScheduleProfileScreen() {
           text: 'Delete', 
           style: 'destructive', 
           onPress: async () => {
-            if (isEditing && id) {
+            if (isEditing && id && selectedPet) { // Ensure we have a pet to update
               setIsLoading(true);
               try {
                 const scheduleDocRef = doc(db, 'feeders', feederId, 'schedules', id);
                 await deleteDoc(scheduleDocRef);
+                
+                // 5. Trigger portion recalculation after deleting
+                await recalculatePortionsForPet(selectedPet.id);
+
                 Alert.alert('Schedule Deleted');
                 router.back();
               } catch (error) {
@@ -313,7 +323,6 @@ export default function ScheduleProfileScreen() {
         )}
       </ScrollView>
 
-      {/* Pet Selection Modal */}
       <Modal visible={isPetModalVisible} transparent={true} animationType="fade">
         <View style={styles.modalBackdrop}>
             <View style={styles.selectionModalContent}>
@@ -335,7 +344,6 @@ export default function ScheduleProfileScreen() {
         </View>
       </Modal>
 
-      {/* Bowl Selection Modal */}
        <Modal visible={isBowlModalVisible} transparent={true} animationType="fade">
         <View style={styles.modalBackdrop}>
             <View style={styles.selectionModalContent}>

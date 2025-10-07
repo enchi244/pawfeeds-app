@@ -3,19 +3,20 @@ import { useRouter } from 'expo-router';
 import { collection, doc, DocumentData, onSnapshot, query, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    ListRenderItem,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  ListRenderItem,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { db } from '../../firebaseConfig';
+import { recalculatePortionsForPet } from '../../utils/portionLogic';
 
 const COLORS = {
   primary: '#8C6E63',
@@ -30,10 +31,12 @@ interface Schedule {
   id: string;
   name: string;
   time: string;
+  petId: string; // Add petId
   petName: string;
   bowlNumber: number;
   isEnabled: boolean;
   repeatDays: string[];
+  portionGrams?: number; // Add optional portionGrams
 }
 
 export default function SchedulesScreen() {
@@ -41,9 +44,8 @@ export default function SchedulesScreen() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
   
-  const petFilters = ['All', ...Array.from(new Set(schedules.map(s => s.petName)))];
   const [activeFilter, setActiveFilter] = useState('All');
-  
+
   const feederId = "eNFJODJ5YP1t3lw77WJG";
 
   useEffect(() => {
@@ -58,22 +60,19 @@ export default function SchedulesScreen() {
           ...doc.data(),
         } as Schedule);
       });
-      // Sort schedules by time
-      schedulesData.sort((a, b) => {
-          const timeA = new Date(`1970/01/01 ${a.time}`).getTime();
-          const timeB = new Date(`1970/01/01 ${b.time}`).getTime();
-          return timeA - timeB;
-      });
       setSchedules(schedulesData);
       setLoading(false);
     }, (error) => {
-      console.error("Error fetching schedules: ", error);
-      setLoading(false);
-      Alert.alert("Error", "Could not fetch schedules.");
+        console.error("Error fetching schedules: ", error);
+        Alert.alert("Error", "Could not fetch schedules from the database.");
+        setLoading(false);
     });
 
     return () => unsubscribe();
   }, []);
+
+  const petFilters = ['All', ...Array.from(new Set(schedules.map(s => s.petName).filter(Boolean)))];
+
 
   const handleAddSchedule = () => {
     router.push({ pathname: "/schedule/[id]", params: { id: 'new' } });
@@ -83,13 +82,19 @@ export default function SchedulesScreen() {
     router.push({ pathname: "/schedule/[id]", params: { id: scheduleId } });
   };
 
-  const toggleSwitch = async (id: string, currentValue: boolean) => {
+  const toggleSwitch = async (id: string, petId: string, currentValue: boolean) => {
+    if (!petId) {
+        Alert.alert("Error", "This schedule is not linked to a pet.");
+        return;
+    }
     const scheduleDocRef = doc(db, 'feeders', feederId, 'schedules', id);
     try {
       await updateDoc(scheduleDocRef, { isEnabled: !currentValue });
+      // After toggling, trigger recalculation for the associated pet
+      await recalculatePortionsForPet(petId);
     } catch (error) {
       console.error("Error updating schedule status: ", error);
-      Alert.alert('Error', 'Could not update the schedule status.');
+      Alert.alert("Error", "Could not update the schedule's status.");
     }
   };
 
@@ -100,18 +105,23 @@ export default function SchedulesScreen() {
 
   const renderScheduleItem: ListRenderItem<Schedule> = ({ item }) => (
     <TouchableOpacity style={styles.scheduleItem} onPress={() => handleEditSchedule(item.id)}>
-      <View style={{ flex: 1, marginRight: 10 }}>
+      <View style={styles.detailsContainer}>
         <Text style={styles.scheduleTime}>{item.time}</Text>
-        <Text style={styles.scheduleName} numberOfLines={1}>{`${item.name} for ${item.petName}`}</Text>
-        <Text style={styles.scheduleDays}>{item.repeatDays && item.repeatDays.length > 0 ? item.repeatDays.join(', ') : 'Does not repeat'}</Text>
+        <Text style={styles.scheduleName}>{`${item.name} for ${item.petName}`}</Text>
+        <Text style={styles.scheduleDays}>{item.repeatDays?.join(', ') || 'No repeat'}</Text>
       </View>
-      <Switch
-        trackColor={{ false: COLORS.lightGray, true: COLORS.accent }}
-        thumbColor={COLORS.white}
-        ios_backgroundColor={COLORS.lightGray}
-        onValueChange={() => toggleSwitch(item.id, item.isEnabled)}
-        value={item.isEnabled}
-      />
+      <View style={styles.controlsContainer}>
+        {item.isEnabled && item.portionGrams !== undefined && (
+          <Text style={styles.portionText}>{item.portionGrams}g</Text>
+        )}
+        <Switch
+          trackColor={{ false: COLORS.lightGray, true: COLORS.accent }}
+          thumbColor={COLORS.white}
+          ios_backgroundColor={COLORS.lightGray}
+          onValueChange={() => toggleSwitch(item.id, item.petId, item.isEnabled)}
+          value={item.isEnabled}
+        />
+      </View>
     </TouchableOpacity>
   );
 
@@ -122,7 +132,7 @@ export default function SchedulesScreen() {
       </View>
       
       <View style={styles.filterBar}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           {petFilters.map(petName => (
             <TouchableOpacity
               key={petName}
@@ -161,18 +171,21 @@ export default function SchedulesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
-  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray, alignItems: 'center' },
+  header: { paddingHorizontal: 20, paddingVertical: 16, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray, alignItems: 'center' },
   headerTitle: { fontSize: 24, fontWeight: 'bold', color: COLORS.primary },
-  filterBar: { paddingVertical: 10, paddingHorizontal: 12, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray },
+  filterBar: { paddingVertical: 12, paddingHorizontal: 12, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray },
   filterButton: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1, borderColor: COLORS.lightGray, backgroundColor: COLORS.white, marginHorizontal: 4 },
   filterButtonActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   filterButtonText: { fontWeight: '600', color: COLORS.primary },
   filterButtonTextActive: { color: COLORS.white },
   listContainer: { padding: 20, flexGrow: 1 },
   scheduleItem: { backgroundColor: COLORS.white, borderRadius: 12, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  detailsContainer: { flex: 1, marginRight: 10 },
   scheduleTime: { fontSize: 22, fontWeight: 'bold', color: COLORS.text },
   scheduleName: { fontSize: 16, color: '#555', marginTop: 4 },
   scheduleDays: { fontSize: 14, color: '#999', marginTop: 4 },
+  controlsContainer: { flexDirection: 'row', alignItems: 'center' },
+  portionText: { fontSize: 16, fontWeight: 'bold', color: COLORS.primary, marginRight: 12 },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, marginTop: 50 },
   emptyText: { fontSize: 20, fontWeight: 'bold', color: '#aaa', marginTop: 16 },
   emptySubText: { fontSize: 16, color: '#bbb', marginTop: 8, textAlign: 'center' },
