@@ -39,30 +39,15 @@ interface Pet {
   name: string;
 }
 
-const parseTimeString = (timeString: string): Date => {
+const parseTimeString = (timeString: string | undefined): Date => {
   const now = new Date();
-  if (!timeString || typeof timeString !== 'string') {
+  if (!timeString) {
     return now;
   }
-
-  const parts = timeString.match(/(\d+):(\d+)\s+(AM|PM)/i);
-  if (!parts) {
-    return new Date('invalid');
+  const [hours, minutes] = timeString.split(':').map(Number);
+  if (isNaN(hours) || isNaN(minutes)) {
+    return now;
   }
-
-  let [, hoursStr, minutesStr, modifier] = parts;
-  let hours = parseInt(hoursStr, 10);
-  const minutes = parseInt(minutesStr, 10);
-  
-  modifier = modifier.toUpperCase();
-
-  if (modifier === 'PM' && hours < 12) {
-    hours += 12;
-  }
-  if (modifier === 'AM' && hours === 12) {
-    hours = 0;
-  }
-
   now.setHours(hours, minutes, 0, 0);
   return now;
 };
@@ -111,11 +96,7 @@ export default function ScheduleProfileScreen() {
           if (docSnap.exists()) {
             const data = docSnap.data();
             setName(data.name || '');
-            
-            const parsedDate = parseTimeString(data.time || '');
-            if (!isNaN(parsedDate.getTime())) {
-              setDate(parsedDate);
-            }
+            setDate(parseTimeString(data.time));
 
             if (data.repeatDays && Array.isArray(data.repeatDays)) {
                 const dayIndices = data.repeatDays.map(dayLetter => DAYS.indexOf(dayLetter)).filter(index => index !== -1);
@@ -143,12 +124,15 @@ export default function ScheduleProfileScreen() {
   const onTimeChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
     setShowTimePicker(Platform.OS === 'ios');
     if (event.type === 'set' && selectedDate) {
-      setDate(selectedDate);
+      const newDate = new Date();
+      newDate.setHours(selectedDate.getHours(), selectedDate.getMinutes(), 0, 0);
+      setDate(newDate);
     }
   };
 
   const formatTime = (dateToFormat: Date) => {
     if (isNaN(dateToFormat.getTime())) {
+        // This case should ideally not be hit with the new logic
         return 'Select a time';
     }
     return dateToFormat.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
@@ -169,10 +153,13 @@ export default function ScheduleProfileScreen() {
     }
     
     setIsLoading(true);
-    // 3. Add petId and portionGrams to the data being saved
+
+    const pad = (num: number) => num.toString().padStart(2, '0');
+    const timeString = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+
     const scheduleData = {
       name,
-      time: formatTime(date),
+      time: timeString,
       repeatDays: selectedDays.sort((a, b) => a - b).map(index => DAYS[index]),
       petId: selectedPet.id,
       petName: selectedPet.name,

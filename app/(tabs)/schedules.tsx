@@ -39,6 +39,19 @@ interface Schedule {
   portionGrams?: number; // Add optional portionGrams
 }
 
+const formatScheduleTime = (timeString: string): string => {
+    if (!timeString) return 'Invalid Time';
+    const [hours, minutes] = timeString.split(':').map(Number);
+    if (isNaN(hours) || isNaN(minutes)) return 'Invalid Time';
+
+    const date = new Date();
+    date.setHours(hours, minutes);
+
+    return date.toLocaleTimeString('en-US', {
+        hour: '2-digit', minute: '2-digit', hour12: true
+    });
+};
+
 export default function SchedulesScreen() {
   const router = useRouter();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -106,7 +119,7 @@ export default function SchedulesScreen() {
   const renderScheduleItem: ListRenderItem<Schedule> = ({ item }) => (
     <TouchableOpacity style={styles.scheduleItem} onPress={() => handleEditSchedule(item.id)}>
       <View style={styles.detailsContainer}>
-        <Text style={styles.scheduleTime}>{item.time}</Text>
+        <Text style={styles.scheduleTime}>{formatScheduleTime(item.time)}</Text>
         <Text style={styles.scheduleName}>{`${item.name} for ${item.petName}`}</Text>
         <Text style={styles.scheduleDays}>{item.repeatDays?.join(', ') || 'No repeat'}</Text>
       </View>

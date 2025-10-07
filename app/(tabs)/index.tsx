@@ -91,6 +91,19 @@ const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel,
   );
 };
 
+const formatScheduleTime = (timeString: string): string => {
+    if (!timeString) return 'Invalid Time';
+    const [hours, minutes] = timeString.split(':').map(Number);
+    if (isNaN(hours) || isNaN(minutes)) return 'Invalid Time';
+
+    const date = new Date();
+    date.setHours(hours, minutes);
+
+    return date.toLocaleTimeString('en-US', {
+        hour: '2-digit', minute: '2-digit', hour12: true
+    });
+};
+
 export default function DashboardScreen() {
   const router = useRouter();
   const [activeIndex, setActiveIndex] = useState(0);
@@ -322,7 +335,7 @@ export default function DashboardScreen() {
           {filteredSchedules.length > 0 ? (
             filteredSchedules.map((schedule) => (
               <View style={styles.scheduleItem} key={schedule.id}>
-                <Text style={styles.scheduleTime}>{schedule.time}</Text>
+                <Text style={styles.scheduleTime}>{formatScheduleTime(schedule.time)}</Text>
                 <Text style={styles.scheduleDetails}>{`${schedule.petName} - Bowl ${schedule.bowlNumber}`}</Text>
               </View>
             ))
