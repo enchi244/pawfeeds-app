@@ -1,9 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { collection, DocumentData, onSnapshot, query } from 'firebase/firestore';
+import { collection, doc, DocumentData, onSnapshot, query, updateDoc } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     FlatList,
     ListRenderItem,
     ScrollView,
@@ -43,10 +44,9 @@ export default function SchedulesScreen() {
   const petFilters = ['All', ...Array.from(new Set(schedules.map(s => s.petName)))];
   const [activeFilter, setActiveFilter] = useState('All');
 
+  const feederId = "eNFJODJ5YP1t3lw77WJG";
+
   useEffect(() => {
-    // IMPORTANT: Replace this with your actual feeder ID from the Firebase console
-    const feederId = "eNFJODJ5YP1t3lw77WJG";
-    
     const schedulesCollectionRef = collection(db, 'feeders', feederId, 'schedules');
     const q = query(schedulesCollectionRef);
 
@@ -60,6 +60,10 @@ export default function SchedulesScreen() {
       });
       setSchedules(schedulesData);
       setLoading(false);
+    }, (error) => {
+        console.error("Error fetching schedules: ", error);
+        Alert.alert("Error", "Could not fetch schedules from the database.");
+        setLoading(false);
     });
 
     return () => unsubscribe();
@@ -73,13 +77,16 @@ export default function SchedulesScreen() {
     router.push({ pathname: "/schedule/[id]", params: { id: scheduleId } });
   };
 
-  const toggleSwitch = (id: string) => {
-    // This will be updated with Firebase logic later
-    setSchedules(prevSchedules => 
-      prevSchedules.map(schedule => 
-        schedule.id === id ? { ...schedule, isEnabled: !schedule.isEnabled } : schedule
-      )
-    );
+  const toggleSwitch = async (id: string, currentValue: boolean) => {
+    const scheduleDocRef = doc(db, 'feeders', feederId, 'schedules', id);
+    try {
+      await updateDoc(scheduleDocRef, {
+        isEnabled: !currentValue
+      });
+    } catch (error) {
+      console.error("Error updating schedule status: ", error);
+      Alert.alert("Error", "Could not update the schedule's status.");
+    }
   };
 
   const filteredSchedules = schedules.filter(schedule => {
@@ -98,7 +105,7 @@ export default function SchedulesScreen() {
         trackColor={{ false: COLORS.lightGray, true: COLORS.accent }}
         thumbColor={COLORS.white}
         ios_backgroundColor={COLORS.lightGray}
-        onValueChange={() => toggleSwitch(item.id)}
+        onValueChange={() => toggleSwitch(item.id, item.isEnabled)}
         value={item.isEnabled}
       />
     </TouchableOpacity>
