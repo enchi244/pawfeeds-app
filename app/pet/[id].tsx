@@ -70,43 +70,62 @@ export default function PetProfileScreen() {
     const fetchPetData = async () => {
       if (isEditing && id) {
         setIsLoading(true);
-        const petDocRef = doc(db, 'feeders', feederId, 'pets', id);
-        const docSnap = await getDoc(petDocRef);
-        if (docSnap.exists()) {
-          const petData = docSnap.data();
-          setName(petData.name || '');
-          setAge(petData.age ? petData.age.toString() : '');
-          setWeight(petData.weight ? petData.weight.toString() : '');
-          setKcal(petData.kcal ? petData.kcal.toString() : '');
-          setNeuterStatus(petData.neuterStatus || 'Neutered/Spayed');
-          setActivityLevel(petData.activityLevel || 'Normal');
+        try {
+            const petDocRef = doc(db, 'feeders', feederId, 'pets', id);
+            const docSnap = await getDoc(petDocRef);
+            if (docSnap.exists()) {
+              const petData = docSnap.data();
+              setName(petData.name || '');
+              setAge(petData.age ? petData.age.toString() : '');
+              setWeight(petData.weight ? petData.weight.toString() : '');
+              setKcal(petData.kcal ? petData.kcal.toString() : '');
+              setNeuterStatus(petData.neuterStatus || 'Neutered/Spayed');
+              setActivityLevel(petData.activityLevel || 'Normal');
+              // When editing, we should populate recommendedPortion from the saved data if it exists
+              setRecommendedPortion(petData.recommendedPortion || 0); 
+            } else {
+                Alert.alert('Error', 'Pet profile not found.');
+                router.back();
+            }
+        } catch (error) {
+            console.error("Error fetching pet data: ", error);
+            Alert.alert('Error', 'There was a problem fetching the pet profile.');
+            router.back();
+        } finally {
+            setIsLoading(false);
         }
-        setIsLoading(false);
       }
     };
     fetchPetData();
-  }, [id, isEditing]);
+  }, [id, isEditing, router]);
 
   useEffect(() => {
     const calculatePortion = () => {
       const weightKg = parseFloat(weight);
       const foodKcal = parseFloat(kcal);
+
       if (isNaN(weightKg) || weightKg <= 0 || isNaN(foodKcal) || foodKcal <= 0) {
         setRecommendedPortion(0);
         return;
       }
+
+      // Resting Energy Requirement (RER)
       const rer = 70 * Math.pow(weightKg, 0.75);
-      let merFactor = 1.6;
+
+      // Maintenance Energy Requirement (MER) factor
+      let merFactor = 1.6; // Default for normal, neutered adult
       if (neuterStatus === 'Neutered/Spayed') {
         if (activityLevel === 'Low') merFactor = 1.2;
         if (activityLevel === 'High') merFactor = 1.8;
-      } else {
+      } else { // Intact
         if (activityLevel === 'Low') merFactor = 1.4;
         if (activityLevel === 'Normal') merFactor = 1.8;
         if (activityLevel === 'High') merFactor = 3.0;
       }
+
       const mer = rer * merFactor;
       const dailyGrams = (mer / foodKcal) * 100;
+
       setRecommendedPortion(Math.round(dailyGrams));
     };
     calculatePortion();
@@ -126,18 +145,23 @@ export default function PetProfileScreen() {
       kcal: parseInt(kcal, 10),
       neuterStatus,
       activityLevel,
+      recommendedPortion, // Ensure recommendedPortion is always included
     };
 
     try {
       if (isEditing && id) {
         // Update existing document
         const petDocRef = doc(db, 'feeders', feederId, 'pets', id);
-        await updateDoc(petDocRef, petData);
+        await updateDoc(petDocRef, petData); // Use petData directly
         Alert.alert('Pet Updated!', `Profile for ${name} has been updated.`);
       } else {
         // Add new document
         const petsCollectionRef = collection(db, 'feeders', feederId, 'pets');
-        await addDoc(petsCollectionRef, petData);
+        const finalPetData = {
+            ...petData, 
+            photoUrl: 'https://firebasestorage.googleapis.com/v0/b/pawfeeds-app.appspot.com/o/pet_place.png?alt=media&token=1432243_placeholder'
+        };
+        await addDoc(petsCollectionRef, finalPetData);
         Alert.alert('Pet Saved!', `Profile for ${name} has been created.`);
       }
       router.back();
@@ -158,7 +182,7 @@ export default function PetProfileScreen() {
         { 
           text: 'Delete', 
           style: 'destructive', 
-          onPress: async () => { // The 'onPress' key was missing here
+          onPress: async () => { 
             if (isEditing && id) {
               setIsLoading(true);
               try {
@@ -175,11 +199,12 @@ export default function PetProfileScreen() {
             }
           }
         },
-      ]
+      ],
+      { cancelable: true }
     );
   };
   
-  if (isLoading) {
+  if (isLoading && isEditing) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={COLORS.primary} />
@@ -230,12 +255,16 @@ export default function PetProfileScreen() {
           <Text style={styles.resultSubtext}>per day, based on veterinary formulas.</Text>
         </View>
 
-        <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-          <Text style={styles.saveButtonText}>{isEditing ? 'Update Pet' : 'Save Pet'}</Text>
+        <TouchableOpacity style={[styles.saveButton, isLoading && styles.disabledButton]} onPress={handleSave} disabled={isLoading}>
+            {isLoading ? (
+                <ActivityIndicator color={COLORS.text} />
+            ) : (
+                <Text style={styles.saveButtonText}>{isEditing ? 'Update Pet' : 'Save Pet'}</Text>
+            )}
         </TouchableOpacity>
         
         {isEditing && (
-          <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
+          <TouchableOpacity style={[styles.deleteButton, isLoading && styles.disabledButton]} onPress={handleDelete} disabled={isLoading}>
             <Text style={styles.deleteButtonText}>Delete Pet</Text>
           </TouchableOpacity>
         )}
@@ -253,8 +282,8 @@ const styles = StyleSheet.create({
     photoContainer: { width: 120, height: 120, borderRadius: 12, borderWidth: 2, borderColor: COLORS.lightGray, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', alignSelf: 'center', marginBottom: 24, backgroundColor: COLORS.white },
     label: { fontSize: 16, fontWeight: '600', color: COLORS.text, marginBottom: 8, marginTop: 16 },
     input: { backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.lightGray, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: COLORS.text },
-    row: { flexDirection: 'row', justifyContent: 'space-between' },
-    column: { flex: 1, marginRight: 8 },
+    row: { flexDirection: 'row', justifyContent: 'space-between', gap: 16 },
+    column: { flex: 1 },
     segmentedControlContainer: { flexDirection: 'row', backgroundColor: COLORS.lightGray, borderRadius: 12, padding: 4 },
     segment: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
     segmentActive: { backgroundColor: COLORS.white },
@@ -268,5 +297,5 @@ const styles = StyleSheet.create({
     saveButtonText: { fontSize: 16, fontWeight: 'bold', color: COLORS.text },
     deleteButton: { paddingVertical: 16, alignItems: 'center', marginTop: 16 },
     deleteButtonText: { fontSize: 16, fontWeight: 'bold', color: COLORS.danger },
+    disabledButton: { opacity: 0.5 },
 });
-
