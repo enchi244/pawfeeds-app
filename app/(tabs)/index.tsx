@@ -1,12 +1,13 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
-import { addDoc, collection, doc, onSnapshot, serverTimestamp, Unsubscribe, updateDoc } from 'firebase/firestore';
+import { addDoc, collection, onSnapshot, serverTimestamp, Unsubscribe } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  FlatList,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -34,7 +35,7 @@ const COLORS = {
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
 
-// --- Interfaces for Firestore data ---
+// --- Interfaces for our data models ---
 interface Pet {
     id: string;
     name: string;
@@ -50,25 +51,22 @@ interface Schedule {
     isEnabled: boolean;
 }
 
-interface BowlAssignments {
-    [key: string]: string; // bowlNumber: petId
-}
-
 interface BowlCardProps {
   bowlNumber: number;
-  assignedPet: Pet | undefined;
+  selectedPet: Pet | undefined;
   foodLevel: number;
   perMealPortion: number;
   onPressFeed: () => void;
-  onPressAssign: () => void;
+  onPressFilter: () => void;
 }
 
-const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, assignedPet, foodLevel, perMealPortion, onPressFeed, onPressAssign }) => {
+const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel, perMealPortion, onPressFeed, onPressFilter }) => {
+  const isUnassigned = !selectedPet;
   return (
     <View style={[styles.card, { width: CARD_WIDTH }]}>
       <View style={styles.cardHeader}>
-        <TouchableOpacity onPress={onPressAssign} style={styles.cardTitleContainer}>
-            <Text style={styles.cardTitle}>{`Bowl ${bowlNumber} - ${assignedPet?.name || 'Unassigned'}`}</Text>
+        <TouchableOpacity onPress={onPressFilter} style={styles.cardTitleContainer}>
+            <Text style={[styles.cardTitle, isUnassigned && { color: '#999' }]}>{`Bowl ${bowlNumber} - ${selectedPet?.name || 'No Pet Scheduled'}`}</Text>
             <MaterialCommunityIcons name="chevron-down" size={24} color={COLORS.text} />
         </TouchableOpacity>
         <View style={styles.onlineIndicator} />
@@ -83,7 +81,7 @@ const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, assignedPet, foodLevel,
         </View>
         <Text style={styles.statusPercentage}>{foodLevel}%</Text>
       </View>
-      <TouchableOpacity style={styles.feedButton} onPress={onPressFeed}>
+      <TouchableOpacity style={[styles.feedButton, isUnassigned && styles.disabledButton]} onPress={onPressFeed} disabled={isUnassigned}>
         <Text style={styles.feedButtonText}>Feed Now</Text>
       </TouchableOpacity>
       <Text style={styles.portionText}>
@@ -98,73 +96,97 @@ export default function DashboardScreen() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   
-  // States for UI control from your original code
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [filters, setFilters] = useState({ bowl1: true, bowl2: true });
 
-  // --- State for Firestore data ---
   const [pets, setPets] = useState<Pet[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [bowlAssignments, setBowlAssignments] = useState<BowlAssignments>({});
 
-  // --- State for Modals ---
   const [isFeedModalVisible, setIsFeedModalVisible] = useState(false);
-  const [isAssignModalVisible, setIsAssignModalVisible] = useState(false);
-  const [selectedBowl, setSelectedBowl] = useState<number | null>(null);
+  const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
+  const [selectedBowlForAction, setSelectedBowlForAction] = useState<number | null>(null);
   const [customAmount, setCustomAmount] = useState('');
   
+  const [selectedPetInBowl, setSelectedPetInBowl] = useState<{[bowlId: string]: string | undefined}>({});
+  
   const feederId = "eNFJODJ5YP1t3lw77WJG";
+  const bowlsConfig = [{ id: 1, foodLevel: 85 }, { id: 2, foodLevel: 60 }];
 
   useEffect(() => {
     const unsubscribes: Unsubscribe[] = [];
     
     const petsRef = collection(db, 'feeders', feederId, 'pets');
     const petsUnsub = onSnapshot(petsRef, (snapshot) => {
-        const petsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Pet));
-        setPets(petsData);
+        setPets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Pet)));
     });
     unsubscribes.push(petsUnsub);
 
     const schedulesRef = collection(db, 'feeders', feederId, 'schedules');
     const schedulesUnsub = onSnapshot(schedulesRef, (snapshot) => {
-        const schedulesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Schedule));
-        setSchedules(schedulesData);
-    });
-    unsubscribes.push(schedulesUnsub);
-
-    const feederRef = doc(db, 'feeders', feederId);
-    const feederUnsub = onSnapshot(feederRef, (doc) => {
-        if (doc.exists()) {
-            setBowlAssignments(doc.data().bowlAssignments || {});
-        }
+        setSchedules(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Schedule)));
         setIsLoading(false);
     });
-    unsubscribes.push(feederUnsub);
+    unsubscribes.push(schedulesUnsub);
 
     return () => unsubscribes.forEach(unsub => unsub());
   }, []);
 
+  const petsByBowl = useMemo(() => {
+    const bowlMap: { [bowlId: string]: Pet[] } = {};
+    const petIdsInBowl: { [bowlId: string]: Set<string> } = {};
+
+    schedules.forEach(schedule => {
+      if (schedule.isEnabled && schedule.petId && schedule.bowlNumber) {
+        if (!bowlMap[schedule.bowlNumber]) {
+          bowlMap[schedule.bowlNumber] = [];
+          petIdsInBowl[schedule.bowlNumber] = new Set();
+        }
+        if (!petIdsInBowl[schedule.bowlNumber].has(schedule.petId)) {
+          const pet = pets.find(p => p.id === schedule.petId);
+          if (pet) {
+            bowlMap[schedule.bowlNumber].push(pet);
+            petIdsInBowl[schedule.bowlNumber].add(pet.id);
+          }
+        }
+      }
+    });
+    return bowlMap;
+  }, [schedules, pets]);
+  
+  useEffect(() => {
+    const newSelections = { ...selectedPetInBowl };
+    let changed = false;
+    bowlsConfig.forEach(bowl => {
+        const petsForBowl = petsByBowl[bowl.id];
+        if (petsForBowl && petsForBowl.length > 0 && !newSelections[bowl.id]) {
+            newSelections[bowl.id] = petsForBowl[0].id;
+            changed = true;
+        }
+        else if ((!petsForBowl || petsForBowl.length === 0) && newSelections[bowl.id]) {
+            delete newSelections[bowl.id];
+            changed = true;
+        }
+    });
+    if (changed) {
+        setSelectedPetInBowl(newSelections);
+    }
+  }, [petsByBowl]);
+
   const activeSchedulesByPetId = useMemo(() => {
     const counts: { [petId: string]: number } = {};
     schedules.forEach(schedule => {
-      // petId is crucial for correct mapping
-      const petId = schedule.petId; 
-      if (schedule.isEnabled && petId) {
-        if (!counts[petId]) {
-          counts[petId] = 0;
-        }
-        counts[petId]++;
+      if (schedule.isEnabled && schedule.petId) {
+        counts[schedule.petId] = (counts[schedule.petId] || 0) + 1;
       }
     });
     return counts;
   }, [schedules]);
-  
+
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const index = Math.round(event.nativeEvent.contentOffset.x / (CARD_WIDTH + 20));
     setActiveIndex(index);
   };
   
-  // --- Preserved functionality from your code ---
   const handleMenu = () => setIsMenuVisible(true);
   const handleMenuClose = () => setIsMenuVisible(false);
 
@@ -172,19 +194,10 @@ export default function DashboardScreen() {
     handleMenuClose();
     Alert.alert("Logout", "Are you sure you want to log out?", [
       { text: "Cancel", style: "cancel" },
-      {
-        text: "Logout",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await signOut(auth);
-            router.replace('/'); // Navigate to the root login screen
-          } catch (error) {
-            console.error("Error logging out: ", error);
-            Alert.alert('Error', 'Failed to log out. Please try again.');
-          }
-        },
-      },
+      { text: "Logout", style: "destructive", onPress: async () => {
+        await signOut(auth);
+        router.replace('/login');
+      }},
     ]);
   };
   
@@ -197,67 +210,66 @@ export default function DashboardScreen() {
     setFilters(prevFilters => ({ ...prevFilters, [bowl]: !prevFilters[bowl] }));
   };
   
-  const filteredSchedules = useMemo(() => schedules.filter(schedule => {
-    if (filters.bowl1 && schedule.bowlNumber === 1) return true;
-    if (filters.bowl2 && schedule.bowlNumber === 2) return true;
-    return false;
-  }), [schedules, filters]);
+  const filteredSchedules = useMemo(() => {
+    return schedules.filter(schedule => {
+        if (!schedule.isEnabled) return false;
+        if (filters.bowl1 && schedule.bowlNumber === 1) return true;
+        if (filters.bowl2 && schedule.bowlNumber === 2) return true;
+        return false;
+    }).sort((a, b) => a.time.localeCompare(b.time)); // Sort by time for display
+  }, [schedules, filters]);
 
-  // --- New functionality for modals ---
+
   const handleOpenFeedModal = (bowlNumber: number) => {
-    setSelectedBowl(bowlNumber);
+    setSelectedBowlForAction(bowlNumber);
     setIsFeedModalVisible(true);
   };
 
-  const handleOpenAssignModal = (bowlNumber: number) => {
-    setSelectedBowl(bowlNumber);
-    setIsAssignModalVisible(true);
+  const handleOpenFilterModal = (bowlNumber: number) => {
+    setSelectedBowlForAction(bowlNumber);
+    setIsFilterModalVisible(true);
   };
 
-  const handleAssignPet = async (petId: string | null) => {
-    if (selectedBowl === null) return;
-    
-    const feederRef = doc(db, 'feeders', feederId);
-    try {
-      await updateDoc(feederRef, { [`bowlAssignments.${selectedBowl}`]: petId || null });
-    } catch (error) {
-      console.error("Error assigning pet:", error);
-      Alert.alert('Error', 'Could not update bowl assignment.');
-    } finally {
-      setIsAssignModalVisible(false);
-      setSelectedBowl(null);
-    }
+  const handleSelectPetForFilter = (petId: string) => {
+      if (selectedBowlForAction) {
+          setSelectedPetInBowl(prev => ({ ...prev, [selectedBowlForAction]: petId }));
+      }
+      setIsFilterModalVisible(false);
   };
   
   const handleDispenseFeed = async (amount: number) => {
-    if (selectedBowl === null || !amount || amount <= 0) {
+    if (selectedBowlForAction === null || !amount || amount <= 0) {
         Alert.alert('Invalid Amount', 'Please provide a valid portion amount.');
         return;
     }
     try {
       const commandsRef = collection(db, 'feeders', feederId, 'commands');
-      await addDoc(commandsRef, { command: 'feed', bowl: selectedBowl, amount, timestamp: serverTimestamp() });
-      Alert.alert('Success', `Dispensing ${amount}g from Bowl ${selectedBowl}.`);
+      await addDoc(commandsRef, { command: 'feed', bowl: selectedBowlForAction, amount, timestamp: serverTimestamp() });
+      Alert.alert('Success', `Dispensing ${amount}g from Bowl ${selectedBowlForAction}.`);
     } catch (error) {
       console.error("Error sending feed command:", error);
       Alert.alert('Error', 'Could not send feed command.');
     } finally {
       setIsFeedModalVisible(false);
-      setSelectedBowl(null);
+      setSelectedBowlForAction(null);
       setCustomAmount('');
     }
   };
   
-  const selectedBowlData = useMemo(() => {
-    if (selectedBowl === null) return null;
-    const petId = bowlAssignments[selectedBowl];
-    const pet = pets.find(p => p.id === petId);
-    const activeScheduleCount = pet ? (activeSchedulesByPetId[pet.id] || 0) : 0;
-    const perMealPortion = (pet && activeScheduleCount > 0) ? Math.round(pet.recommendedPortion / activeScheduleCount) : (pet?.recommendedPortion || 0);
-    return { pet, perMealPortion };
-  }, [selectedBowl, bowlAssignments, pets, activeSchedulesByPetId]);
+  const feedModalData = useMemo(() => {
+    if (selectedBowlForAction === null) return null;
+    const petId = selectedPetInBowl[selectedBowlForAction];
+    if (!petId) return null;
 
-  const bowls = [{ id: 1, foodLevel: 85 }, { id: 2, foodLevel: 60 }];
+    const pet = pets.find(p => p.id === petId);
+    if (!pet) return null;
+
+    const activeScheduleCount = activeSchedulesByPetId[pet.id] || 0;
+    const perMealPortion = (pet.recommendedPortion && activeScheduleCount > 0) ? Math.round(pet.recommendedPortion / activeScheduleCount) : 0;
+    
+    return { pet, perMealPortion };
+  }, [selectedBowlForAction, selectedPetInBowl, pets, activeSchedulesByPetId]);
+
 
   if (isLoading) {
     return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
@@ -273,27 +285,27 @@ export default function DashboardScreen() {
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <View>
           <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16} contentContainerStyle={styles.swiperContainer} decelerationRate="fast" snapToInterval={CARD_WIDTH + 20} snapToAlignment="start">
-            {bowls.map((bowl) => {
-                const assignedPetId = bowlAssignments[bowl.id];
-                const assignedPet = pets.find(p => p.id === assignedPetId);
-                const activeScheduleCount = assignedPet ? (activeSchedulesByPetId[assignedPet.id] || 0) : 0;
-                const perMealPortion = (assignedPet && activeScheduleCount > 0) ? Math.round(assignedPet.recommendedPortion / activeScheduleCount) : (assignedPet?.recommendedPortion || 0);
+            {bowlsConfig.map((bowl) => {
+                const selectedPetId = selectedPetInBowl[bowl.id];
+                const selectedPet = pets.find(p => p.id === selectedPetId);
+                const activeScheduleCount = selectedPet ? (activeSchedulesByPetId[selectedPet.id] || 0) : 0;
+                const perMealPortion = (selectedPet && selectedPet.recommendedPortion && activeScheduleCount > 0) ? Math.round(selectedPet.recommendedPortion / activeScheduleCount) : 0;
 
                 return (
                     <BowlCard
                         key={bowl.id}
                         bowlNumber={bowl.id}
-                        assignedPet={assignedPet}
+                        selectedPet={selectedPet}
                         foodLevel={bowl.foodLevel}
                         perMealPortion={perMealPortion}
                         onPressFeed={() => handleOpenFeedModal(bowl.id)}
-                        onPressAssign={() => handleOpenAssignModal(bowl.id)}
+                        onPressFilter={() => handleOpenFilterModal(bowl.id)}
                     />
                 );
             })}
           </ScrollView>
           <View style={styles.pagination}>
-            {bowls.map((_, index) => (<View key={index} style={[styles.dot, index === activeIndex ? styles.activeDot : styles.inactiveDot]}/>))}
+            {bowlsConfig.map((_, index) => (<View key={index} style={[styles.dot, index === activeIndex ? styles.activeDot : styles.inactiveDot]}/>))}
           </View>
         </View>
 
@@ -318,7 +330,7 @@ export default function DashboardScreen() {
         </View>
       </ScrollView>
 
-      {/* Menu Modal (Preserved) */}
+      {/* Main Menu Modal */}
       <Modal animationType="fade" transparent={true} visible={isMenuVisible} onRequestClose={handleMenuClose} >
         <TouchableOpacity style={styles.modalOverlay} onPress={handleMenuClose} activeOpacity={1}>
           <View style={styles.menuContainer}>
@@ -331,18 +343,18 @@ export default function DashboardScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Feed Now Modal (New) */}
+      {/* Feed Now Modal */}
       <Modal visible={isFeedModalVisible} transparent={true} animationType="fade" onRequestClose={() => setIsFeedModalVisible(false)}>
         <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
                 <Text style={styles.modalTitle}>Manual Feed</Text>
-                <Text style={styles.modalSubtitle}>Dispense food from Bowl {selectedBowl} for {selectedBowlData?.pet?.name || 'N/A'}.</Text>
-                <TouchableOpacity style={styles.modalButton} onPress={() => handleDispenseFeed(selectedBowlData?.perMealPortion || 0)} disabled={!selectedBowlData?.perMealPortion}>
-                    <Text style={styles.modalButtonText}>{`Dispense Meal (${selectedBowlData?.perMealPortion || 0}g)`}</Text>
+                <Text style={styles.modalSubtitle}>Dispense food from Bowl {selectedBowlForAction} for {feedModalData?.pet?.name || 'N/A'}.</Text>
+                <TouchableOpacity style={[styles.modalButton, !feedModalData?.perMealPortion && styles.disabledButton]} onPress={() => handleDispenseFeed(feedModalData?.perMealPortion || 0)} disabled={!feedModalData?.perMealPortion}>
+                    <Text style={styles.modalButtonText}>{`Dispense Meal (${feedModalData?.perMealPortion || 0}g)`}</Text>
                 </TouchableOpacity>
                 <Text style={styles.modalDivider}>OR</Text>
                 <TextInput style={styles.modalInput} placeholder="Enter custom amount (grams)" keyboardType="number-pad" value={customAmount} onChangeText={setCustomAmount} />
-                <TouchableOpacity style={styles.modalButton} onPress={() => handleDispenseFeed(parseInt(customAmount, 10))}>
+                <TouchableOpacity style={[styles.modalButton, !customAmount && styles.disabledButton]} onPress={() => handleDispenseFeed(parseInt(customAmount, 10))} disabled={!customAmount}>
                     <Text style={styles.modalButtonText}>Dispense Custom</Text>
                 </TouchableOpacity>
                  <TouchableOpacity style={[styles.modalButton, styles.cancelButton]} onPress={() => setIsFeedModalVisible(false)}>
@@ -352,26 +364,23 @@ export default function DashboardScreen() {
         </View>
       </Modal>
 
-      {/* Assign Pet Modal (New) */}
-      <Modal visible={isAssignModalVisible} transparent={true} animationType="fade" onRequestClose={() => setIsAssignModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-                <Text style={styles.modalTitle}>Assign Pet to Bowl {selectedBowl}</Text>
-                <ScrollView style={styles.modalScrollView}>
-                    {pets.map(pet => (
-                        <TouchableOpacity key={pet.id} style={styles.modalButton} onPress={() => handleAssignPet(pet.id)}>
-                            <Text style={styles.modalButtonText}>{pet.name}</Text>
+      {/* Pet Filter Modal */}
+      <Modal visible={isFilterModalVisible} transparent={true} animationType="fade" onRequestClose={() => setIsFilterModalVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} onPress={() => setIsFilterModalVisible(false)} activeOpacity={1}>
+            <View style={styles.selectionModalContent}>
+                <Text style={styles.modalTitle}>Select Pet to View</Text>
+                <FlatList
+                    data={petsByBowl[selectedBowlForAction!] || []}
+                    keyExtractor={(item) => item.id}
+                    renderItem={({ item }) => (
+                        <TouchableOpacity style={styles.selectionItem} onPress={() => handleSelectPetForFilter(item.id)}>
+                            <Text style={styles.selectionItemText}>{item.name}</Text>
                         </TouchableOpacity>
-                    ))}
-                    <TouchableOpacity style={[styles.modalButton, styles.unassignButton]} onPress={() => handleAssignPet(null)}>
-                        <Text style={[styles.modalButtonText, styles.cancelButtonText]}>Unassign</Text>
-                    </TouchableOpacity>
-                </ScrollView>
-                <TouchableOpacity style={[styles.modalButton, styles.cancelButton]} onPress={() => setIsAssignModalVisible(false)}>
-                    <Text style={[styles.modalButtonText, styles.cancelButtonText]}>Cancel</Text>
-                </TouchableOpacity>
+                    )}
+                    ListEmptyComponent={<Text style={styles.emptyListText}>No pets scheduled for this bowl.</Text>}
+                />
             </View>
-        </View>
+        </TouchableOpacity>
       </Modal>
     </SafeAreaView>
   );
@@ -386,8 +395,8 @@ const styles = StyleSheet.create({
   swiperContainer: { paddingHorizontal: 20, paddingTop: 20 },
   card: { backgroundColor: COLORS.white, borderRadius: 16, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 4, marginRight: 20 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  cardTitleContainer: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  cardTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
+  cardTitleContainer: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, marginRight: 10 },
+  cardTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text, flexShrink: 1 },
   onlineIndicator: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#4CAF50' },
   videoFeedPlaceholder: { height: 180, backgroundColor: '#E0E0E0', borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
   videoFeedText: { color: '#999', fontWeight: '500' },
@@ -397,6 +406,7 @@ const styles = StyleSheet.create({
   progressBarFill: { height: '100%', backgroundColor: COLORS.primary, borderRadius: 5 },
   statusPercentage: { textAlign: 'right', fontSize: 12, color: '#666', marginTop: 4 },
   feedButton: { backgroundColor: COLORS.accent, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+  disabledButton: { backgroundColor: COLORS.lightGray },
   feedButtonText: { fontSize: 16, fontWeight: 'bold', color: COLORS.text },
   portionText: { textAlign: 'center', color: '#888', marginTop: 12, fontSize: 14, fontStyle: 'italic' },
   pagination: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 16 },
@@ -416,23 +426,24 @@ const styles = StyleSheet.create({
   scheduleDetails: { fontSize: 16, color: '#555' },
   noSchedulesText: { textAlign: 'center', color: '#999', marginTop: 20, fontStyle: 'italic' },
   modalOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'center', alignItems: 'center' },
-  menuContainer: { position: 'absolute', top: 0, left: 0, width: '80%', height: '100%', backgroundColor: COLORS.white, padding: 20, paddingTop: 60, shadowColor: '#000', shadowOffset: { width: 2, height: 0 }, shadowOpacity: 0.25, shadowRadius: 5, elevation: 8 },
-  menuTitle: { fontSize: 24, fontWeight: 'bold', color: COLORS.primary, marginBottom: 20, textAlign: 'left', paddingLeft: 10 },
-  menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray },
+  menuContainer: { width: '80%', backgroundColor: COLORS.white, borderRadius: 20, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 5, elevation: 8 },
+  menuTitle: { fontSize: 24, fontWeight: 'bold', color: COLORS.primary, marginBottom: 20, textAlign: 'center' },
+  menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray },
   menuItemText: { fontSize: 18, fontWeight: '500', color: COLORS.text, marginLeft: 15 },
   menuIcon: { width: 24, textAlign: 'center' },
-  menuLogoutButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, marginTop: 'auto', paddingHorizontal: 10 },
+  menuLogoutButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 15, marginTop: 20 },
   menuLogoutText: { fontSize: 18, fontWeight: '500', color: COLORS.danger, marginLeft: 15 },
-  // Styles for new modals
   modalContent: { width: '85%', backgroundColor: COLORS.white, borderRadius: 16, padding: 24, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
-  modalTitle: { fontSize: 22, fontWeight: 'bold', color: COLORS.primary, marginBottom: 8 },
   modalSubtitle: { fontSize: 16, color: COLORS.text, marginBottom: 24, textAlign: 'center' },
   modalButton: { backgroundColor: COLORS.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', width: '100%', marginBottom: 12 },
   modalButtonText: { fontSize: 16, fontWeight: 'bold', color: COLORS.white },
   modalDivider: { color: '#aaa', fontWeight: 'bold', marginVertical: 8 },
   modalInput: { width: '100%', backgroundColor: COLORS.background, borderWidth: 1, borderColor: COLORS.lightGray, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: COLORS.text, textAlign: 'center', marginVertical: 12 },
-  cancelButton: { backgroundColor: 'transparent', borderWidth: 1, borderColor: COLORS.lightGray },
-  cancelButtonText: { color: COLORS.text },
+  cancelButton: { backgroundColor: 'transparent' },
+  cancelButtonText: { color: COLORS.danger, fontWeight: '600' },
   unassignButton: { backgroundColor: COLORS.danger, borderWidth: 0},
-  modalScrollView: { width: '100%', maxHeight: 240, marginTop: 12 },
+  selectionModalContent: { backgroundColor: COLORS.white, borderRadius: 12, padding: 20, width: '85%', maxHeight: '60%' },
+  selectionItem: { paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray },
+  selectionItemText: { fontSize: 18, color: COLORS.text, textAlign: 'center' },
+  emptyListText: { textAlign: 'center', color: '#999', marginVertical: 20 },
 });
