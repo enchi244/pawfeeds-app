@@ -1,11 +1,12 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { addDoc, collection, deleteDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
+import { addDoc, collection, deleteDoc, doc, DocumentData, getDoc, getDocs, query, updateDoc } from 'firebase/firestore';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    FlatList,
     Modal,
     Platform,
     ScrollView,
@@ -13,6 +14,7 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
+    useColorScheme,
     View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -31,68 +33,125 @@ const COLORS = {
 
 const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
-// Helper function to parse a time string like "08:00 AM" into a Date object
+interface Pet {
+  id: string;
+  name: string;
+}
+
+// A more robust time parsing function using regex
 const parseTimeString = (timeString: string): Date => {
-  const [time, modifier] = timeString.split(' ');
-  let [hours, minutes] = time.split(':').map(Number);
+  const now = new Date();
+  if (!timeString || typeof timeString !== 'string') {
+    return now;
+  }
+
+  const parts = timeString.match(/(\d+):(\d+)\s+(AM|PM)/i);
+  if (!parts) {
+    return new Date('invalid'); // Return an invalid date if format is wrong
+  }
+
+  let [, hoursStr, minutesStr, modifier] = parts;
+  let hours = parseInt(hoursStr, 10);
+  const minutes = parseInt(minutesStr, 10);
+  
+  modifier = modifier.toUpperCase();
 
   if (modifier === 'PM' && hours < 12) {
     hours += 12;
   }
   if (modifier === 'AM' && hours === 12) {
-    hours = 0;
+    hours = 0; // Midnight case
   }
-  const date = new Date();
-  date.setHours(hours, minutes, 0, 0);
-  return date;
+
+  now.setHours(hours, minutes, 0, 0);
+  return now;
 };
 
 export default function ScheduleProfileScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const isEditing = id !== 'new';
+  const colorScheme = useColorScheme();
 
   const [name, setName] = useState('');
   const [date, setDate] = useState(new Date());
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  
+  const [pets, setPets] = useState<Pet[]>([]);
+  const [selectedPet, setSelectedPet] = useState<Pet | null>(null);
+  const [selectedBowl, setSelectedBowl] = useState<number | null>(null);
+
+  const [isPetModalVisible, setPetModalVisible] = useState(false);
+  const [isBowlModalVisible, setBowlModalVisible] = useState(false);
+
+  const [isLoading, setIsLoading] = useState(true);
   
   const feederId = "eNFJODJ5YP1t3lw77WJG";
 
+  const bowls = useMemo(() => [{ id: 1, name: 'Bowl 1' }, { id: 2, name: 'Bowl 2' }], []);
+
   useEffect(() => {
-    const fetchScheduleData = async () => {
-      if (isEditing && id) {
-        setIsLoading(true);
-        const scheduleDocRef = doc(db, 'feeders', feederId, 'schedules', id);
-        const docSnap = await getDoc(scheduleDocRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setName(data.name || '');
-          if (data.time && typeof data.time === 'string') {
-            setDate(parseTimeString(data.time));
-          }
-          if (data.repeatDays && Array.isArray(data.repeatDays)) {
-              const dayIndices = data.repeatDays.map(dayLetter => DAYS.indexOf(dayLetter)).filter(index => index !== -1);
-              setSelectedDays(dayIndices);
+    const fetchInitialData = async () => {
+      setIsLoading(true);
+      
+      // Fetch pets
+      try {
+        const petsCollectionRef = collection(db, 'feeders', feederId, 'pets');
+        const q = query(petsCollectionRef);
+        const querySnapshot = await getDocs(q);
+        const petsData: Pet[] = [];
+        querySnapshot.forEach((doc: DocumentData) => {
+          petsData.push({ id: doc.id, name: doc.data().name } as Pet);
+        });
+        setPets(petsData);
+
+        // If editing, fetch schedule data
+        if (isEditing && id) {
+          const scheduleDocRef = doc(db, 'feeders', feederId, 'schedules', id);
+          const docSnap = await getDoc(scheduleDocRef);
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            setName(data.name || '');
+            
+            const parsedDate = parseTimeString(data.time || '');
+            if (!isNaN(parsedDate.getTime())) {
+              setDate(parsedDate);
+            }
+
+            if (data.repeatDays && Array.isArray(data.repeatDays)) {
+                const dayIndices = data.repeatDays.map(dayLetter => DAYS.indexOf(dayLetter)).filter(index => index !== -1);
+                setSelectedDays(dayIndices);
+            }
+            // Set selected pet and bowl from loaded data
+            const pet = petsData.find(p => p.name === data.petName);
+            setSelectedPet(pet || null);
+            setSelectedBowl(data.bowlNumber || null);
           }
         }
+      } catch (error) {
+        console.error("Failed to fetch initial data:", error);
+        Alert.alert("Error", "Could not load data. Please try again.");
+      } finally {
         setIsLoading(false);
       }
     };
-    fetchScheduleData();
+    
+    fetchInitialData();
   }, [id, isEditing]);
 
+
   const onTimeChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
-    if (Platform.OS === 'android') {
-        setShowTimePicker(false);
-    }
+    setShowTimePicker(Platform.OS === 'ios'); // Keep visible on iOS until 'Done'
     if (event.type === 'set' && selectedDate) {
       setDate(selectedDate);
     }
   };
 
   const formatTime = (dateToFormat: Date) => {
+    if (isNaN(dateToFormat.getTime())) {
+        return 'Select a time';
+    }
     return dateToFormat.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
   };
   
@@ -105,18 +164,18 @@ export default function ScheduleProfileScreen() {
   };
 
   const handleSave = async () => {
-    if (!name) {
-      Alert.alert('Missing Name', 'Please give this schedule a name.');
+    if (!name || !selectedPet || !selectedBowl) {
+      Alert.alert('Missing Information', 'Please provide a name, select a pet, and choose a bowl.');
       return;
     }
     
     setIsLoading(true);
     const scheduleData = {
       name,
-      time: formatTime(date), // Save time as a simple string
+      time: formatTime(date),
       repeatDays: selectedDays.sort((a, b) => a - b).map(index => DAYS[index]),
-      petName: 'Buddy', // Placeholder
-      bowlNumber: 1, // Placeholder
+      petName: selectedPet.name,
+      bowlNumber: selectedBowl,
       isEnabled: true,
     };
 
@@ -196,16 +255,24 @@ export default function ScheduleProfileScreen() {
         )}
 
         {Platform.OS === 'ios' && (
-          <Modal visible={showTimePicker} transparent={true} animationType="fade">
-            <View style={styles.modalContainer}>
-              <View style={styles.modalContent}>
-                <DateTimePicker value={date} mode="time" is24Hour={false} display="spinner" onChange={onTimeChange} textColor={COLORS.text}/>
-                <TouchableOpacity style={styles.doneButton} onPress={() => setShowTimePicker(false)}>
-                  <Text style={styles.doneButtonText}>Done</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </Modal>
+            <Modal visible={showTimePicker} transparent={true} animationType="fade">
+                <View style={styles.modalBackdrop}>
+                    <View style={[styles.modalContent, { backgroundColor: colorScheme === 'dark' ? '#333' : COLORS.background }]}>
+                        <DateTimePicker 
+                            value={date} 
+                            mode="time" 
+                            is24Hour={false} 
+                            display="spinner" 
+                            onChange={onTimeChange} 
+                            textColor={colorScheme === 'dark' ? COLORS.white : COLORS.text}
+                            themeVariant={colorScheme ?? 'light'}
+                        />
+                        <TouchableOpacity style={styles.doneButton} onPress={() => setShowTimePicker(false)}>
+                            <Text style={styles.doneButtonText}>Done</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
         )}
         
         <Text style={styles.label}>Repeat on Days</Text>
@@ -222,10 +289,18 @@ export default function ScheduleProfileScreen() {
         </View>
 
         <Text style={styles.label}>Pet to Feed</Text>
-        <TextInput style={styles.input} value="Buddy" placeholder="Select a pet..." editable={false} />
+        <TouchableOpacity style={styles.input} onPress={() => setPetModalVisible(true)}>
+            <Text style={[styles.timeText, !selectedPet && { color: '#999' }]}>
+                {selectedPet ? selectedPet.name : 'Select a pet...'}
+            </Text>
+        </TouchableOpacity>
 
         <Text style={styles.label}>Dispense from</Text>
-        <TextInput style={styles.input} value="Bowl 1" placeholder="Select a bowl..." editable={false} />
+        <TouchableOpacity style={styles.input} onPress={() => setBowlModalVisible(true)}>
+            <Text style={[styles.timeText, !selectedBowl && { color: '#999' }]}>
+                {selectedBowl ? `Bowl ${selectedBowl}` : 'Select a bowl...'}
+            </Text>
+        </TouchableOpacity>
 
         <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
           <Text style={styles.saveButtonText}>{isEditing ? 'Update Schedule' : 'Save Schedule'}</Text>
@@ -237,6 +312,49 @@ export default function ScheduleProfileScreen() {
           </TouchableOpacity>
         )}
       </ScrollView>
+
+      {/* Pet Selection Modal */}
+      <Modal visible={isPetModalVisible} transparent={true} animationType="fade">
+        <View style={styles.modalBackdrop}>
+            <View style={styles.selectionModalContent}>
+                <Text style={styles.modalTitle}>Select a Pet</Text>
+                <FlatList
+                    data={pets}
+                    keyExtractor={(item) => item.id}
+                    renderItem={({ item }) => (
+                        <TouchableOpacity style={styles.selectionItem} onPress={() => { setSelectedPet(item); setPetModalVisible(false); }}>
+                            <Text style={styles.selectionItemText}>{item.name}</Text>
+                        </TouchableOpacity>
+                    )}
+                    ListEmptyComponent={<Text style={styles.emptyListText}>No pets found. Add a pet first!</Text>}
+                />
+                <TouchableOpacity style={styles.cancelButton} onPress={() => setPetModalVisible(false)}>
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+            </View>
+        </View>
+      </Modal>
+
+      {/* Bowl Selection Modal */}
+       <Modal visible={isBowlModalVisible} transparent={true} animationType="fade">
+        <View style={styles.modalBackdrop}>
+            <View style={styles.selectionModalContent}>
+                <Text style={styles.modalTitle}>Select a Bowl</Text>
+                <FlatList
+                    data={bowls}
+                    keyExtractor={(item) => item.id.toString()}
+                    renderItem={({ item }) => (
+                        <TouchableOpacity style={styles.selectionItem} onPress={() => { setSelectedBowl(item.id); setBowlModalVisible(false); }}>
+                            <Text style={styles.selectionItemText}>{item.name}</Text>
+                        </TouchableOpacity>
+                    )}
+                />
+                 <TouchableOpacity style={styles.cancelButton} onPress={() => setBowlModalVisible(false)}>
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+            </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -246,7 +364,7 @@ const styles = StyleSheet.create({
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray },
     headerTitle: { fontSize: 20, fontWeight: 'bold', color: COLORS.primary },
-    scrollContent: { padding: 20 },
+    scrollContent: { padding: 20, paddingBottom: 40 },
     label: { fontSize: 16, fontWeight: '600', color: COLORS.text, marginBottom: 8, marginTop: 16 },
     input: { backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.lightGray, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: COLORS.text, justifyContent: 'center' },
     timeText: { fontSize: 16, color: COLORS.text },
@@ -259,8 +377,15 @@ const styles = StyleSheet.create({
     saveButtonText: { fontSize: 16, fontWeight: 'bold', color: COLORS.text },
     deleteButton: { paddingVertical: 16, alignItems: 'center', marginTop: 16 },
     deleteButtonText: { fontSize: 16, fontWeight: 'bold', color: COLORS.danger },
-    modalContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.overlay },
-    modalContent: { backgroundColor: COLORS.white, borderRadius: 20, padding: 20, width: '80%', alignItems: 'center' },
+    modalBackdrop: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.overlay },
+    modalContent: { backgroundColor: COLORS.background, borderRadius: 20, padding: 20, width: '80%', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
     doneButton: { backgroundColor: COLORS.accent, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 30, marginTop: 20 },
     doneButtonText: { fontSize: 16, fontWeight: 'bold', color: COLORS.text },
+    selectionModalContent: { backgroundColor: COLORS.white, borderRadius: 12, padding: 20, width: '85%', maxHeight: '60%' },
+    modalTitle: { fontSize: 20, fontWeight: 'bold', color: COLORS.primary, marginBottom: 16, textAlign: 'center' },
+    selectionItem: { paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray },
+    selectionItemText: { fontSize: 18, color: COLORS.text, textAlign: 'center' },
+    emptyListText: { textAlign: 'center', color: '#999', marginVertical: 20 },
+    cancelButton: { paddingTop: 16, alignItems: 'center', },
+    cancelButtonText: { fontSize: 16, fontWeight: '600', color: COLORS.danger },
 });

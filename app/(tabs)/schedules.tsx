@@ -43,7 +43,7 @@ export default function SchedulesScreen() {
   
   const petFilters = ['All', ...Array.from(new Set(schedules.map(s => s.petName)))];
   const [activeFilter, setActiveFilter] = useState('All');
-
+  
   const feederId = "eNFJODJ5YP1t3lw77WJG";
 
   useEffect(() => {
@@ -58,12 +58,18 @@ export default function SchedulesScreen() {
           ...doc.data(),
         } as Schedule);
       });
+      // Sort schedules by time
+      schedulesData.sort((a, b) => {
+          const timeA = new Date(`1970/01/01 ${a.time}`).getTime();
+          const timeB = new Date(`1970/01/01 ${b.time}`).getTime();
+          return timeA - timeB;
+      });
       setSchedules(schedulesData);
       setLoading(false);
     }, (error) => {
-        console.error("Error fetching schedules: ", error);
-        Alert.alert("Error", "Could not fetch schedules from the database.");
-        setLoading(false);
+      console.error("Error fetching schedules: ", error);
+      setLoading(false);
+      Alert.alert("Error", "Could not fetch schedules.");
     });
 
     return () => unsubscribe();
@@ -80,12 +86,10 @@ export default function SchedulesScreen() {
   const toggleSwitch = async (id: string, currentValue: boolean) => {
     const scheduleDocRef = doc(db, 'feeders', feederId, 'schedules', id);
     try {
-      await updateDoc(scheduleDocRef, {
-        isEnabled: !currentValue
-      });
+      await updateDoc(scheduleDocRef, { isEnabled: !currentValue });
     } catch (error) {
       console.error("Error updating schedule status: ", error);
-      Alert.alert("Error", "Could not update the schedule's status.");
+      Alert.alert('Error', 'Could not update the schedule status.');
     }
   };
 
@@ -96,10 +100,10 @@ export default function SchedulesScreen() {
 
   const renderScheduleItem: ListRenderItem<Schedule> = ({ item }) => (
     <TouchableOpacity style={styles.scheduleItem} onPress={() => handleEditSchedule(item.id)}>
-      <View>
+      <View style={{ flex: 1, marginRight: 10 }}>
         <Text style={styles.scheduleTime}>{item.time}</Text>
-        <Text style={styles.scheduleName}>{`${item.name} for ${item.petName}`}</Text>
-        <Text style={styles.scheduleDays}>{item.repeatDays.join(', ')}</Text>
+        <Text style={styles.scheduleName} numberOfLines={1}>{`${item.name} for ${item.petName}`}</Text>
+        <Text style={styles.scheduleDays}>{item.repeatDays && item.repeatDays.length > 0 ? item.repeatDays.join(', ') : 'Does not repeat'}</Text>
       </View>
       <Switch
         trackColor={{ false: COLORS.lightGray, true: COLORS.accent }}
@@ -118,7 +122,7 @@ export default function SchedulesScreen() {
       </View>
       
       <View style={styles.filterBar}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center' }}>
           {petFilters.map(petName => (
             <TouchableOpacity
               key={petName}
@@ -157,9 +161,9 @@ export default function SchedulesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
-  header: { paddingHorizontal: 20, paddingTop: 16, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray, alignItems: 'center' },
+  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray, alignItems: 'center' },
   headerTitle: { fontSize: 24, fontWeight: 'bold', color: COLORS.primary },
-  filterBar: { paddingVertical: 12, paddingHorizontal: 12, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray },
+  filterBar: { paddingVertical: 10, paddingHorizontal: 12, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray },
   filterButton: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1, borderColor: COLORS.lightGray, backgroundColor: COLORS.white, marginHorizontal: 4 },
   filterButtonActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
   filterButtonText: { fontWeight: '600', color: COLORS.primary },
