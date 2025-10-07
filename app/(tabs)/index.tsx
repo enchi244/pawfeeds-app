@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { getAuth } from 'firebase/auth';
+import { signOut } from 'firebase/auth';
 import React, { useState } from 'react';
 import {
   Alert,
@@ -15,8 +15,18 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { auth } from '../../firebaseConfig';
 
-const COLORS = { primary: '#8C6E63', accent: '#FFC107', background: '#F5F5F5', text: '#333333', lightGray: '#E0E0E0', white: '#FFFFFF', danger: '#D32F2F', overlay: 'rgba(0, 0, 0, 0.4)' };
+const COLORS = { 
+  primary: '#8C6E63', 
+  accent: '#FFC107', 
+  background: '#F5F5F5', 
+  text: '#333333', 
+  lightGray: '#E0E0E0', 
+  white: '#FFFFFF', 
+  danger: '#D32F2F', 
+  overlay: 'rgba(0, 0, 0, 0.4)' 
+};
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
@@ -66,7 +76,6 @@ export default function DashboardScreen() {
     { id: 2, petName: 'Lucy', foodLevel: 60 },
   ];
 
-  // More sample data to show filtering
   const allSchedules = [
       { time: '08:00 AM', details: 'Buddy - Bowl 1', bowl: 1 },
       { time: '12:00 PM', details: 'Lucy - Bowl 2', bowl: 2 },
@@ -95,22 +104,30 @@ export default function DashboardScreen() {
   const handleMenu = () => setIsMenuVisible(true);
   const handleMenuClose = () => setIsMenuVisible(false);
 
-  const handleLogout = async () => {
-    try {
-      const auth = getAuth();
-      await auth.signOut();
-      router.replace('/');
-      Alert.alert('Logged Out', 'You have been successfully logged out.');
-    } catch (error) {
-      console.error("Error logging out: ", error);
-      Alert.alert('Error', 'Failed to log out. Please try again.');
-    } finally {
-      handleMenuClose();
-    }
+  const handleLogout = () => {
+    handleMenuClose();
+    Alert.alert("Logout", "Are you sure you want to log out?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await signOut(auth);
+            // With the new structure, we can safely navigate.
+            // The AuthProvider will update, and the new layout will handle the rest.
+            router.replace('/login');
+          } catch (error) {
+            console.error("Error logging out: ", error);
+            Alert.alert('Error', 'Failed to log out. Please try again.');
+          }
+        },
+      },
+    ]);
   };
 
   const handleAccountPress = () => {
-    router.push('/account/account');
+    Alert.alert('Navigate', 'This would navigate to the account screen.');
     handleMenuClose();
   };
 
@@ -126,7 +143,15 @@ export default function DashboardScreen() {
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <View>
           <ScrollView
-            horizontal pagingEnabled showsHorizontalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16} contentContainerStyle={styles.swiperContainer} decelerationRate="fast" snapToInterval={CARD_WIDTH + 20} snapToAlignment="start"
+            horizontal 
+            pagingEnabled 
+            showsHorizontalScrollIndicator={false} 
+            onScroll={handleScroll} 
+            scrollEventThrottle={16} 
+            contentContainerStyle={styles.swiperContainer} 
+            decelerationRate="fast" 
+            snapToInterval={CARD_WIDTH + 20} 
+            snapToAlignment="start"
           >
             {bowls.map((bowl) => (
               <BowlCard key={bowl.id} bowlNumber={bowl.id} petName={bowl.petName} foodLevel={bowl.foodLevel} />
@@ -141,7 +166,7 @@ export default function DashboardScreen() {
 
         <View style={styles.scheduleSection}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Todays Feedings</Text>
+            <Text style={styles.sectionTitle}>Today's Feedings</Text>
             <View style={styles.filterContainer}>
               <TouchableOpacity style={[styles.filterButton, filters.bowl1 && styles.filterButtonActive]} onPress={() => toggleFilter('bowl1')}><Text style={[styles.filterButtonText, filters.bowl1 && styles.filterButtonTextActive]}>Bowl 1</Text></TouchableOpacity>
               <TouchableOpacity style={[styles.filterButton, filters.bowl2 && styles.filterButtonActive]} onPress={() => toggleFilter('bowl2')}><Text style={[styles.filterButtonText, filters.bowl2 && styles.filterButtonTextActive]}>Bowl 2</Text></TouchableOpacity>
@@ -160,7 +185,6 @@ export default function DashboardScreen() {
         </View>
       </ScrollView>
 
-      {/* Centered Modal Menu */}
       <Modal animationType="fade" transparent={true} visible={isMenuVisible} onRequestClose={handleMenuClose} >
         <TouchableOpacity style={styles.modalOverlay} onPress={handleMenuClose} activeOpacity={1}>
           <View style={styles.menuContainer}>

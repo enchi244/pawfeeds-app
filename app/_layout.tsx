@@ -1,83 +1,40 @@
-import { Redirect, Stack } from 'expo-router';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import { auth, db } from '../firebaseConfig';
+import { SplashScreen, Stack } from 'expo-router';
+import React, { useEffect } from 'react';
+import { AuthProvider, useAuth } from '../context/AuthContext';
 
-const COLORS = {
-  primary: '#8C6E63',
-  background: '#F5F5F5',
-};
+// Keep the splash screen visible until the auth state is loaded.
+SplashScreen.preventAutoHideAsync();
 
-// Custom hook to manage authentication state and device provisioning status
-function useSession() {
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasDevice, setHasDevice] = useState<boolean | null>(null);
+function RootLayoutNav() {
+  const { isLoading } = useAuth();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
-      if (authUser) {
-        setUser(authUser);
-        const userDocRef = doc(db, 'users', authUser.uid);
-        const userDoc = await getDoc(userDocRef);
+    if (!isLoading) {
+      SplashScreen.hideAsync();
+    }
+  }, [isLoading]);
 
-        if (!userDoc.exists()) {
-          // New user, create document and set hasDevice to false
-          await setDoc(userDocRef, { feederId: null });
-          setHasDevice(false);
-        } else {
-          // Existing user, check for feederId
-          setHasDevice(!!userDoc.data().feederId);
-        }
-      } else {
-        // User is signed out
-        setUser(null);
-        setHasDevice(false);
-      }
-      setIsLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  return { user, isLoading, hasDevice };
-}
-
-export default function AppLayout() {
-  const { user, isLoading, hasDevice } = useSession();
-
-  if (isLoading || hasDevice === null) {
-    return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-      </View>
-    );
+  // Render nothing while loading. The splash screen will be visible.
+  if (isLoading) {
+    return null;
   }
 
-  if (user && !hasDevice) {
-    return <Redirect href="/provisioning" />;
-  }
-
-  if (!user) {
-    return <Redirect href="/" />;
-  }
-
+  // Define all possible top-level routes.
   return (
     <Stack>
-      <Stack.Screen name="provisioning" options={{ headerShown: false }} />
+      <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="account/account" options={{ headerShown: false }} />
+      <Stack.Screen name="pet/[id]" options={{ headerShown: false, presentation: 'modal' }} />
+      <Stack.Screen name="schedule/[id]" options={{ headerShown: false, presentation: 'modal' }} />
     </Stack>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: COLORS.background,
-  },
-});
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <RootLayoutNav />
+    </AuthProvider>
+  );
+}

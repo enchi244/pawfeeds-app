@@ -1,18 +1,26 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import React from 'react';
+import { useAuth } from '../../context/AuthContext';
 
-// --- Color Palette ---
 const COLORS = {
-  primary: '#8C6E63', // Kibble Brown
-  accent: '#FFC107', // Golden Hour Yellow
-  background: '#F5F5F5', // Soft Cream
-  text: '#333333', // Charcoal Gray
+  primary: '#8C6E63',
+  accent: '#FFC107',
+  background: '#F5F5F5',
+  text: '#333333',
   lightGray: '#E0E0E0',
   white: '#FFFFFF',
 };
 
 export default function TabLayout() {
+  const { user } = useAuth();
+
+  // If the user is not signed in, redirect them to the login screen.
+  // This is a crucial safeguard for protected routes.
+  if (!user) {
+    return <Redirect href="/login" />;
+  }
+
   return (
     <Tabs
       screenOptions={({ route }) => ({
@@ -37,37 +45,15 @@ export default function TabLayout() {
           } else if (route.name === 'schedules') {
             iconName = 'clock-outline';
           } else {
-            iconName = 'help-circle'; // A fallback icon
+            iconName = 'help-circle';
           }
 
-          return (
-            <MaterialCommunityIcons
-              name={iconName}
-              size={size}
-              color={color}
-            />
-          );
+          return <MaterialCommunityIcons name={iconName} size={size} color={color} />;
         },
       })}>
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Dashboard',
-        }}
-      />
-      <Tabs.Screen
-        name="pets"
-        options={{
-          title: 'Pets',
-        }}
-      />
-      <Tabs.Screen
-        name="schedules"
-        options={{
-          title: 'Schedules',
-        }}
-      />
+      <Tabs.Screen name="index" options={{ title: 'Dashboard' }} />
+      <Tabs.Screen name="pets" options={{ title: 'Pets' }} />
+      <Tabs.Screen name="schedules" options={{ title: 'Schedules' }} />
     </Tabs>
   );
 }
-
