@@ -2,16 +2,17 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    FlatList,
-    Modal,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  FlatList,
+  Modal,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '../../context/AuthContext';
 
 const COLORS = {
   primary: '#8C6E63',
@@ -38,6 +39,7 @@ const MOCK_NETWORKS: WifiNetwork[] = [
 
 export default function SelectNetworkScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [networks, setNetworks] = useState<WifiNetwork[]>([]);
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -77,14 +79,21 @@ export default function SelectNetworkScreen() {
       alert('Please provide all network details.');
       return;
     }
-    console.log(`Connecting to SSID: ${ssid} with Password: ${password}`);
+    if (!user) {
+      alert('Authentication error. Please restart the app.');
+      return;
+    }
+    
+    console.log(`Preparing to send SSID: ${ssid}, Password: [hidden], UID: ${user.uid}`);
+    
     setIsModalVisible(false);
     setPassword('');
     setManualSsid('');
-    // Navigate to the next screen, passing credentials as params
+
+    // Navigate to the next screen, passing all necessary params
     router.push({
       pathname: '/(provisioning)/pairing',
-      params: { ssid, password },
+      params: { ssid, password, uid: user.uid },
     });
   };
 
@@ -98,44 +107,6 @@ export default function SelectNetworkScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <Stack.Screen options={{ title: 'Step 2: Connect to Your Wi-Fi' }} />
-
-      <View style={styles.headerContainer}>
-        <Text style={styles.title}>Select Network</Text>
-        <Text style={styles.subtitle}>
-          Choose your home Wi-Fi network from the list discovered by your feeder.
-        </Text>
-      </View>
-
-      {isLoading ? (
-        <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loaderText}>Scanning for networks...</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={networks}
-          keyExtractor={(item) => item.ssid}
-          renderItem={({ item }) => (
-            <TouchableOpacity style={styles.networkItem} onPress={() => handleNetworkSelect(item)}>
-              <MaterialCommunityIcons name={getSignalIcon(item.rssi)} size={24} color={COLORS.primary} />
-              <Text style={styles.networkSsid}>{item.ssid}</Text>
-            </TouchableOpacity>
-          )}
-          ListFooterComponent={
-            <View style={styles.footerButtons}>
-              <TouchableOpacity style={styles.footerButton} onPress={fetchNetworks}>
-                <MaterialCommunityIcons name="refresh" size={20} color={COLORS.primary} />
-                <Text style={styles.footerButtonText}>Scan Again</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.footerButton} onPress={handleManualEntry}>
-                <MaterialCommunityIcons name="plus" size={20} color={COLORS.primary} />
-                <Text style={styles.footerButtonText}>Join a Hidden Network</Text>
-              </TouchableOpacity>
-            </View>
-          }
-          contentContainerStyle={styles.listContent}
-        />
-      )}
 
       <Modal
         animationType="fade"
@@ -183,6 +154,44 @@ export default function SelectNetworkScreen() {
           </View>
         </View>
       </Modal>
+      
+      <View style={styles.headerContainer}>
+        <Text style={styles.title}>Select Network</Text>
+        <Text style={styles.subtitle}>
+          Choose your home Wi-Fi network from the list discovered by your feeder.
+        </Text>
+      </View>
+
+      {isLoading ? (
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loaderText}>Scanning for networks...</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={networks}
+          keyExtractor={(item) => item.ssid}
+          renderItem={({ item }) => (
+            <TouchableOpacity style={styles.networkItem} onPress={() => handleNetworkSelect(item)}>
+              <MaterialCommunityIcons name={getSignalIcon(item.rssi)} size={24} color={COLORS.primary} />
+              <Text style={styles.networkSsid}>{item.ssid}</Text>
+            </TouchableOpacity>
+          )}
+          ListFooterComponent={
+            <View style={styles.footerButtons}>
+              <TouchableOpacity style={styles.footerButton} onPress={fetchNetworks}>
+                <MaterialCommunityIcons name="refresh" size={20} color={COLORS.primary} />
+                <Text style={styles.footerButtonText}>Scan Again</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.footerButton} onPress={handleManualEntry}>
+                <MaterialCommunityIcons name="plus" size={20} color={COLORS.primary} />
+                <Text style={styles.footerButtonText}>Join a Hidden Network</Text>
+              </TouchableOpacity>
+            </View>
+          }
+          contentContainerStyle={styles.listContent}
+        />
+      )}
     </SafeAreaView>
   );
 }

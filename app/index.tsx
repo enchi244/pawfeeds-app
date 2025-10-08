@@ -1,14 +1,12 @@
 import { Redirect } from 'expo-router';
 import React from 'react';
 import { ActivityIndicator, View } from 'react-native';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/AuthContext'; // Assuming this is the correct path
 
 export default function StartPage() {
-  const { user, isLoading } = useAuth();
+  const { authStatus } = useAuth();
 
-  if (isLoading) {
-    // While loading, you can show a loading indicator or just a blank screen.
-    // The splash screen will cover this anyway.
+  if (authStatus === 'loading') {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" />
@@ -16,11 +14,14 @@ export default function StartPage() {
     );
   }
 
-  if (user) {
-    // If the user is authenticated, redirect to the main app layout.
+  if (authStatus === 'authenticated_with_feeder') {
     return <Redirect href="/(tabs)" />;
-  } else {
-    // If the user is not authenticated, redirect to the login screen.
-    return <Redirect href="/login" />;
   }
+  
+  if (authStatus === 'authenticated_no_feeder') {
+    return <Redirect href="/(provisioning)/index" />;
+  }
+
+  // Unauthenticated
+  return <Redirect href="/login" />;
 }

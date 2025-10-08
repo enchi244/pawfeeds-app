@@ -1,8 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '../../context/AuthContext';
+import { db } from '../../firebaseConfig';
 
 const COLORS = {
   primary: '#8C6E63',
@@ -26,51 +29,79 @@ interface PairingStep {
 const INITIAL_STEPS: PairingStep[] = [
   { key: 'sending', text: 'Sending credentials to feeder', status: 'pending' },
   { key: 'connecting', text: 'Feeder connecting to your Wi-Fi', status: 'pending' },
-  { key: 'registering', text: 'Registering feeder with your account', status: 'pending' },
-  { key: 'finalizing', text: 'Finalizing setup', status: 'pending' },
+  { key: 'registering', text: 'Waiting for feeder to register...', status: 'pending' },
 ];
 
 export default function PairingScreen() {
   const router = useRouter();
+  const { user } = useAuth();
+  const params = useLocalSearchParams(); // ssid, password
   const [steps, setSteps] = useState<PairingStep[]>(INITIAL_STEPS);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const runPairingProcess = async () => {
-      // Step 1: Sending credentials
-      await updateStepStatus('sending', 'active');
-      await wait(1500); // Simulate API call
-      await updateStepStatus('sending', 'success');
+    let unsubscribe: (() => void) | null = null;
+    let timeoutId: NodeJS.Timeout | null = null;
 
-      // Step 2: Connecting to Wi-Fi
-      await updateStepStatus('connecting', 'active');
-      await wait(2500); // Simulate connection attempt
-
-      // --- Simulate success or failure ---
-      const didConnect = Math.random() > 0.2; // 80% success rate
-
-      if (!didConnect) {
-        await updateStepStatus('connecting', 'error', 'Could not connect to the Wi-Fi network. Please check your password and try again.');
+    const startPairingProcess = async () => {
+      if (!user) {
+        setError("User not authenticated. Please restart the process.");
         return;
       }
-      await updateStepStatus('connecting', 'success');
 
-      // Step 3: Registering with cloud
-      await updateStepStatus('registering', 'active');
-      await wait(2000); // Simulate cloud registration
-      await updateStepStatus('registering', 'success');
+      // --- This is where you would send credentials to the ESP32 ---
+      // For now, we simulate this step's success
+      await updateStepStatus('sending', 'active');
+      // const feederApi = new FeederProvisioningApi();
+      // await feederApi.sendCredentials(params.ssid, params.password, user.uid);
+      await wait(1500); 
+      await updateStepStatus('sending', 'success');
+      await updateStepStatus('connecting', 'active');
+      // --- End of credential sending simulation ---
 
-      // Step 4: Finalizing
-      await updateStepStatus('finalizing', 'active');
-      await wait(1000);
-      await updateStepStatus('finalizing', 'success');
+
+      // Set a timeout for the entire process
+      timeoutId = setTimeout(() => {
+        updateStepStatus('connecting', 'error', 'Feeder took too long to connect. Please check your Wi-Fi credentials and try again.');
+        unsubscribe?.(); // Stop listening on timeout
+      }, 60000); // 60-second timeout
+
+      // Start listening for the feeder to appear in Firestore
+      const feedersCollectionRef = collection(db, 'feeders');
+      const q = query(feedersCollectionRef, where('owner_uid', '==', user.uid));
       
-      // Navigate to complete screen on success
-      router.replace('/(provisioning)/complete');
+      unsubscribe = onSnapshot(q, async (querySnapshot) => {
+        if (!querySnapshot.empty) {
+            // A feeder document linked to this user has appeared!
+            if (timeoutId) clearTimeout(timeoutId); // Clear the timeout
+            unsubscribe?.(); // Stop listening
+            
+            await updateStepStatus('connecting', 'success');
+            await updateStepStatus('registering', 'active');
+            await wait(500);
+            await updateStepStatus('registering', 'success');
+            
+            router.replace('/(provisioning)/complete');
+        }
+      }, (err) => {
+        console.error("Firestore listener error:", err);
+        setError("A database error occurred. Please try again.");
+        if (timeoutId) clearTimeout(timeoutId);
+      });
     };
 
-    runPairingProcess();
-  }, [router]);
+    startPairingProcess();
+
+    // Cleanup function
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [user, router, params]);
 
   const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 

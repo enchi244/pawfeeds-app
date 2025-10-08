@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
 import React from 'react';
-import { Linking, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Linking, Platform, StyleSheet, Text, ToastAndroid, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const COLORS = {
@@ -16,10 +16,18 @@ const COLORS = {
 export default function ConnectToFeederScreen() {
   const router = useRouter();
 
-  const openWifiSettings = () => {
-    // This will open the device's Wi-Fi settings screen
-    Linking.openURL('App-Prefs:WIFI'); // For iOS. Android has a different intent.
-    // A more robust solution would use a native module or a library like 'react-native-send-intent' for Android.
+  const openWifiSettings = async () => {
+    try {
+      if (Platform.OS === 'ios') {
+        await Linking.openURL('App-Prefs:WIFI');
+      } else {
+        // This is the intent for Android Wi-Fi settings
+        await Linking.sendIntent('android.settings.WIFI_SETTINGS');
+      }
+    } catch (error) {
+      console.error('Failed to open Wi-Fi settings:', error);
+      ToastAndroid.show('Could not open Wi-Fi settings automatically.', ToastAndroid.LONG);
+    }
   };
 
   return (
@@ -35,7 +43,7 @@ export default function ConnectToFeederScreen() {
           <View style={styles.step}>
             <Text style={styles.stepNumber}>1</Text>
             <Text style={styles.stepText}>
-              Open your phone&apos;s Wi-Fi settings. You can use the button below.
+              Open your phone&apos;s Wi-Fi settings using the button below.
             </Text>
           </View>
           <TouchableOpacity style={styles.settingsButton} onPress={openWifiSettings}>
@@ -66,7 +74,7 @@ export default function ConnectToFeederScreen() {
         <TouchableOpacity
           style={styles.button}
           onPress={() => router.push('/(provisioning)/select-network')}>
-          <Text style={styles.buttonText}>{"Im Connected"}</Text>
+          <Text style={styles.buttonText}>I&apos;m Connected</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
