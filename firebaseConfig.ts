@@ -5,12 +5,12 @@ import { getFirestore } from "firebase/firestore";
 
 // Your app's Firebase project configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyCXmmtqLFGWB4nkeMXJ3eOD4r71llAFnYY",
-  authDomain: "pawfeeds-app.firebaseapp.com",
-  projectId: "pawfeeds-app",
-  storageBucket: "pawfeeds-app.firebasestorage.app",
-  messagingSenderId: "641645557069",
-  appId: "1:641645557069:web:3481b2024f7416f6943304"
+  apiKey: "AIzaSyD6qqin2W1UpqCbtudFN6cMHo8S3jtqz0c",
+  authDomain: "pawfeeds-v2.firebaseapp.com",
+  projectId: "pawfeeds-v2",
+  storageBucket: "pawfeeds-v2.firebasestorage.app",
+  messagingSenderId: "847280230673",
+  appId: "1:847280230673:web:e82d2fa686e31775bbfcb0"
 };
 
 // Initialize Firebase

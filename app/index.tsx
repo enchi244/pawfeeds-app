@@ -19,7 +19,7 @@ export default function StartPage() {
   }
   
   if (authStatus === 'authenticated_no_feeder') {
-    return <Redirect href="/(provisioning)/index" />;
+    return <Redirect href="/(provisioning)" />;
   }
 
   // Unauthenticated
