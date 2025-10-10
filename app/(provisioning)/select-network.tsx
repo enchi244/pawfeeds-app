@@ -3,6 +3,7 @@ import { Stack, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Modal,
   StyleSheet,
@@ -29,32 +30,48 @@ interface WifiNetwork {
   rssi: number; // Signal strength
 }
 
-// Placeholder data for Wi-Fi scan results
-const MOCK_NETWORKS: WifiNetwork[] = [
-  { ssid: 'MyHomeWiFi-2.4G', rssi: -45 },
-  { ssid: 'NeighborNet', rssi: -78 },
-  { ssid: 'xfinitywifi', rssi: -85 },
-  { ssid: 'Guest_Network', rssi: -55 },
-];
-
 export default function SelectNetworkScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [networks, setNetworks] = useState<WifiNetwork[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [selectedNetwork, setSelectedNetwork] = useState<WifiNetwork | null>(null);
   const [isManualEntry, setIsManualEntry] = useState(false);
   const [manualSsid, setManualSsid] = useState('');
   const [password, setPassword] = useState('');
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
-  const fetchNetworks = () => {
+  const fetchNetworks = async () => {
     setIsLoading(true);
-    // Simulate an API call to the feeder to get Wi-Fi networks
-    setTimeout(() => {
-      setNetworks(MOCK_NETWORKS);
+    setError(null);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const response = await fetch('http://192.168.4.1/networks', { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) throw new Error(`Device responded with status: ${response.status}`);
+      
+      const data: WifiNetwork[] = await response.json();
+      if (!Array.isArray(data)) throw new Error('Received invalid data format from device.');
+
+      setNetworks(data.sort((a, b) => b.rssi - a.rssi));
+    } catch (e: any) {
+      clearTimeout(timeoutId);
+      console.error("Fetch Error:", e);
+      if (e.name === 'AbortError') {
+        setError('Request timed out. Ensure you are connected to "PawFeeds_Setup" Wi-Fi and try again.');
+      } else {
+        setError('Failed to fetch networks. Please try again.');
+      }
+      setNetworks([]);
+    } finally {
       setIsLoading(false);
-    }, 2000);
+    }
   };
 
   useEffect(() => {
@@ -72,29 +89,42 @@ export default function SelectNetworkScreen() {
     setIsManualEntry(true);
     setIsModalVisible(true);
   };
-
-  const handleConnect = () => {
+  
+  const handleConnect = async () => {
     const ssid = isManualEntry ? manualSsid : selectedNetwork?.ssid;
     if (!ssid || !password) {
-      alert('Please provide all network details.');
+      Alert.alert('Details Required', 'Please provide the network name and password.');
       return;
     }
     if (!user) {
-      alert('Authentication error. Please restart the app.');
+      Alert.alert('Authentication Error', 'You must be logged in to provision a device.');
       return;
     }
     
-    console.log(`Preparing to send SSID: ${ssid}, Password: [hidden], UID: ${user.uid}`);
-    
-    setIsModalVisible(false);
-    setPassword('');
-    setManualSsid('');
+    setIsConnecting(true);
 
-    // Navigate to the next screen, passing all necessary params
-    router.push({
-      pathname: '/(provisioning)/pairing',
-      params: { ssid, password, uid: user.uid },
-    });
+    try {
+      const response = await fetch('http://192.168.4.1/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `ssid=${encodeURIComponent(ssid)}&pass=${encodeURIComponent(password)}&uid=${encodeURIComponent(user.uid)}`,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Device responded with status: ${response.status}`);
+      }
+      
+      setIsModalVisible(false);
+      setPassword('');
+      setManualSsid('');
+      router.replace('/(provisioning)/complete');
+
+    } catch (error) {
+      console.error('Pairing failed:', error);
+      Alert.alert('Pairing Failed', 'Could not send credentials to the feeder. Please try again.');
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
   const getSignalIcon = (rssi: number): React.ComponentProps<typeof MaterialCommunityIcons>['name'] => {
@@ -102,6 +132,13 @@ export default function SelectNetworkScreen() {
     if (rssi > -70) return 'wifi-strength-3';
     if (rssi > -80) return 'wifi-strength-2';
     return 'wifi-strength-1';
+  };
+
+  const closeModal = () => {
+    setIsModalVisible(false);
+    setPassword('');
+    setManualSsid('');
+    setIsPasswordVisible(false); // Reset password visibility on close
   };
 
   return (
@@ -112,7 +149,7 @@ export default function SelectNetworkScreen() {
         animationType="fade"
         transparent={true}
         visible={isModalVisible}
-        onRequestClose={() => setIsModalVisible(false)}>
+        onRequestClose={closeModal}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>
@@ -127,28 +164,41 @@ export default function SelectNetworkScreen() {
                 autoCapitalize="none"
               />
             )}
-            <TextInput
-              style={styles.input}
-              placeholder="Password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoCapitalize="none"
-            />
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Password"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!isPasswordVisible}
+                autoCapitalize="none"
+              />
+              <TouchableOpacity
+                style={styles.eyeIcon}
+                onPress={() => setIsPasswordVisible((prev) => !prev)}>
+                <MaterialCommunityIcons
+                  name={isPasswordVisible ? 'eye-off' : 'eye'}
+                  size={24}
+                  color={COLORS.text}
+                />
+              </TouchableOpacity>
+            </View>
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => {
-                  setIsModalVisible(false);
-                  setPassword('');
-                  setManualSsid('');
-                }}>
+                onPress={closeModal}
+                disabled={isConnecting}>
                 <Text style={[styles.modalButtonText, styles.cancelButtonText]}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.modalButton, styles.connectButton]}
-                onPress={handleConnect}>
-                <Text style={[styles.modalButtonText, styles.connectButtonText]}>Connect</Text>
+                onPress={handleConnect}
+                disabled={isConnecting}>
+                {isConnecting ? (
+                  <ActivityIndicator color={COLORS.text} />
+                ) : (
+                  <Text style={[styles.modalButtonText, styles.connectButtonText]}>Connect</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -166,6 +216,13 @@ export default function SelectNetworkScreen() {
         <View style={styles.loaderContainer}>
           <ActivityIndicator size="large" color={COLORS.primary} />
           <Text style={styles.loaderText}>Scanning for networks...</Text>
+        </View>
+      ) : error ? (
+        <View style={styles.loaderContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={fetchNetworks}>
+                <Text style={styles.retryButtonText}>Scan Again</Text>
+            </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -201,8 +258,11 @@ const styles = StyleSheet.create({
   headerContainer: { padding: 24, paddingBottom: 16 },
   title: { fontSize: 26, fontWeight: 'bold', color: COLORS.text },
   subtitle: { fontSize: 16, color: '#666', marginTop: 8 },
-  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
   loaderText: { marginTop: 16, color: '#666', fontSize: 16 },
+  errorText: { fontSize: 16, color: 'red', textAlign: 'center', marginBottom: 20 },
+  retryButton: { backgroundColor: COLORS.primary, paddingVertical: 12, paddingHorizontal: 30, borderRadius: 8 },
+  retryButtonText: { color: COLORS.white, fontSize: 16, fontWeight: 'bold' },
   listContent: { paddingHorizontal: 24, paddingBottom: 24 },
   networkItem: {
     flexDirection: 'row',
@@ -260,6 +320,24 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.text,
     marginBottom: 16,
+  },
+  passwordContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.lightGray,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  passwordInput: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+  },
+  eyeIcon: {
+    padding: 12,
   },
   modalActions: {
     flexDirection: 'row',
