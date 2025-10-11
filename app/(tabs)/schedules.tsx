@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { collection, doc, DocumentData, onSnapshot, query, updateDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, onSnapshot, query, Unsubscribe, where, writeBatch } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -15,8 +15,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
-import { recalculatePortionsForPet } from '../../utils/portionLogic';
 
 const COLORS = {
   primary: '#8C6E63',
@@ -56,33 +56,58 @@ export default function SchedulesScreen() {
   const router = useRouter();
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
   
   const [activeFilter, setActiveFilter] = useState('All');
 
-  const feederId = "eNFJODJ5YP1t3lw77WJG";
+  const [feederId, setFeederId] = useState<string | null>(null);
 
   useEffect(() => {
-    const schedulesCollectionRef = collection(db, 'feeders', feederId, 'schedules');
-    const q = query(schedulesCollectionRef);
-
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const schedulesData: Schedule[] = [];
-      querySnapshot.forEach((doc: DocumentData) => {
-        schedulesData.push({
-          id: doc.id,
-          ...doc.data(),
-        } as Schedule);
-      });
-      setSchedules(schedulesData);
+    if (!user) {
       setLoading(false);
-    }, (error) => {
-        console.error("Error fetching schedules: ", error);
-        Alert.alert("Error", "Could not fetch schedules from the database.");
-        setLoading(false);
-    });
+      return;
+    }
 
-    return () => unsubscribe();
-  }, []);
+    let unsubscribe: Unsubscribe = () => {};
+
+    const fetchFeederAndSchedules = async () => {
+      try {
+        const feedersRef = collection(db, 'feeders');
+        const qFeeder = query(feedersRef, where('owner_uid', '==', user.uid));
+        const querySnapshot = await getDocs(qFeeder);
+
+        if (!querySnapshot.empty) {
+          const feederDoc = querySnapshot.docs[0];
+          const currentFeederId = feederDoc.id;
+          setFeederId(currentFeederId);
+
+          const schedulesCollectionRef = collection(db, 'feeders', currentFeederId, 'schedules');
+          const qSchedules = query(schedulesCollectionRef);
+
+          unsubscribe = onSnapshot(qSchedules, (snapshot) => {
+            const schedulesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Schedule));
+            setSchedules(schedulesData);
+            setLoading(false);
+          }, (error) => {
+              console.error("Error fetching schedules: ", error);
+              Alert.alert("Error", "Could not fetch schedules from the database.");
+              setLoading(false);
+          });
+        } else {
+          setSchedules([]);
+          Alert.alert('No Feeder Found', 'Could not find a feeder associated with your account. Please provision one.');
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error("Error fetching feeder or schedules:", error);
+        Alert.alert("Error", "Could not load schedules. Please try again.");
+        setLoading(false);
+      }
+    };
+
+    fetchFeederAndSchedules();
+    return () => unsubscribe(); // Cleanup the listener
+  }, [user]);
 
   const petFilters = ['All', ...Array.from(new Set(schedules.map(s => s.petName).filter(Boolean)))];
 
@@ -96,15 +121,47 @@ export default function SchedulesScreen() {
   };
 
   const toggleSwitch = async (id: string, petId: string, currentValue: boolean) => {
+    if (!feederId) {
+      Alert.alert('Error', 'Feeder ID not found. Cannot update schedule.');
+      return;
+    }
     if (!petId) {
         Alert.alert("Error", "This schedule is not linked to a pet.");
         return;
     }
-    const scheduleDocRef = doc(db, 'feeders', feederId, 'schedules', id);
+
     try {
-      await updateDoc(scheduleDocRef, { isEnabled: !currentValue });
-      // After toggling, trigger recalculation for the associated pet
-      await recalculatePortionsForPet(petId);
+      const batch = writeBatch(db);
+      const schedulesRef = collection(db, 'feeders', feederId, 'schedules');
+      const petRef = doc(db, 'feeders', feederId, 'pets', petId);
+
+      // 1. Get the pet's total recommended portion
+      const petSnap = await getDoc(petRef);
+      if (!petSnap.exists()) {
+        throw new Error("Pet not found for recalculation.");
+      }
+      const recommendedPortion = petSnap.data().recommendedPortion || 0;
+
+      // 2. Get all schedules for the pet to determine the new count of enabled schedules
+      const q = query(schedulesRef, where('petId', '==', petId));
+      const querySnapshot = await getDocs(q);
+
+      // The new state is `!currentValue`. We count how many schedules will be enabled *after* this toggle.
+      const newEnabledCount = querySnapshot.docs.filter(doc => {
+        return doc.id === id ? !currentValue : doc.data().isEnabled;
+      }).length;
+
+      const newPortion = newEnabledCount > 0 ? Math.round(recommendedPortion / newEnabledCount) : 0;
+
+      // 3. Update all schedules for this pet
+      querySnapshot.forEach(scheduleDoc => {
+        const isCurrentDoc = scheduleDoc.id === id;
+        const willBeEnabled = isCurrentDoc ? !currentValue : scheduleDoc.data().isEnabled;
+        batch.update(scheduleDoc.ref, { isEnabled: willBeEnabled, portionGrams: willBeEnabled ? newPortion : 0 });
+      });
+
+      // 4. Commit all changes at once
+      await batch.commit();
     } catch (error) {
       console.error("Error updating schedule status: ", error);
       Alert.alert("Error", "Could not update the schedule's status.");

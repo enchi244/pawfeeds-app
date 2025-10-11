@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
-import { addDoc, collection, onSnapshot, serverTimestamp, Unsubscribe } from 'firebase/firestore';
+import { getDatabase, ref, serverTimestamp as rtdbServerTimestamp, set } from 'firebase/database';
+import { collection, getDocs, onSnapshot, query, Unsubscribe, where } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -19,6 +20,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '../../context/AuthContext';
 import { auth, db } from '../../firebaseConfig';
 
 const COLORS = {
@@ -106,6 +108,7 @@ const formatScheduleTime = (timeString: string): string => {
 
 export default function DashboardScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [activeIndex, setActiveIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   
@@ -123,44 +126,65 @@ export default function DashboardScreen() {
   const [isCustomFeedVisible, setIsCustomFeedVisible] = useState(false);
   const [selectedPetInBowl, setSelectedPetInBowl] = useState<{[bowlId: string]: string | undefined}>({});
   
-  const feederId = "eNFJODJ5YP1t3lw77WJG";
+  const [feederId, setFeederId] = useState<string | null>(null);
   const bowlsConfig = [{ id: 1, foodLevel: 85 }, { id: 2, foodLevel: 60 }];
 
   useEffect(() => {
-    const unsubscribes: Unsubscribe[] = [];
-    
-    const petsRef = collection(db, 'feeders', feederId, 'pets');
-    const petsUnsub = onSnapshot(petsRef, (snapshot) => {
-        setPets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Pet)));
-    });
-    unsubscribes.push(petsUnsub);
+    if (!user) {
+      setIsLoading(false);
+      return;
+    }
 
-    const schedulesRef = collection(db, 'feeders', feederId, 'schedules');
-    const schedulesUnsub = onSnapshot(schedulesRef, (snapshot) => {
-        setSchedules(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Schedule)));
+    const unsubscribes: Unsubscribe[] = [];
+
+    const fetchFeederAndData = async () => {
+      const feedersRef = collection(db, 'feeders');
+      const q = query(feedersRef, where('owner_uid', '==', user.uid));
+      const querySnapshot = await getDocs(q);
+
+      if (!querySnapshot.empty) {
+        const currentFeederId = querySnapshot.docs[0].id;
+        setFeederId(currentFeederId);
+
+        const petsRef = collection(db, 'feeders', currentFeederId, 'pets');
+        const petsUnsub = onSnapshot(petsRef, (snapshot) => {
+          setPets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Pet)));
+        });
+        unsubscribes.push(petsUnsub);
+
+        const schedulesRef = collection(db, 'feeders', currentFeederId, 'schedules');
+        const schedulesUnsub = onSnapshot(schedulesRef, (snapshot) => {
+          setSchedules(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Schedule)));
+          setIsLoading(false);
+        });
+        unsubscribes.push(schedulesUnsub);
+      } else {
         setIsLoading(false);
-    });
-    unsubscribes.push(schedulesUnsub);
+        // No feeder found, the UI will show an empty state.
+      }
+    };
+
+    fetchFeederAndData().catch(console.error);
 
     return () => unsubscribes.forEach(unsub => unsub());
-  }, []);
+  }, [user]);
 
   const petsByBowl = useMemo(() => {
     const bowlMap: { [bowlId: string]: Pet[] } = {};
-    const petIdsInBowl: { [bowlId: string]: Set<string> } = {};
+    const addedPetIds: { [bowlId: string]: Set<string> } = {};
 
     schedules.forEach(schedule => {
       if (schedule.isEnabled && schedule.petId && schedule.bowlNumber) {
         if (!bowlMap[schedule.bowlNumber]) {
           bowlMap[schedule.bowlNumber] = [];
-          petIdsInBowl[schedule.bowlNumber] = new Set();
+          addedPetIds[schedule.bowlNumber] = new Set();
         }
-        if (!petIdsInBowl[schedule.bowlNumber].has(schedule.petId)) {
-          const pet = pets.find(p => p.id === schedule.petId);
-          if (pet) {
-            bowlMap[schedule.bowlNumber].push(pet);
-            petIdsInBowl[schedule.bowlNumber].add(pet.id);
-          }
+
+        // Find the pet and add it to the bowl's list if not already there
+        const pet = pets.find(p => p.id === schedule.petId);
+        if (pet && !addedPetIds[schedule.bowlNumber].has(pet.id)) {
+          bowlMap[schedule.bowlNumber].push(pet);
+          addedPetIds[schedule.bowlNumber].add(pet.id);
         }
       }
     });
@@ -257,9 +281,16 @@ export default function DashboardScreen() {
         Alert.alert('Invalid Amount', 'Please provide a valid portion amount.');
         return;
     }
+    if (!feederId) {
+      Alert.alert('Error', 'Feeder not identified. Cannot send command.');
+      return;
+    }
     try {
-      const commandsRef = collection(db, 'feeders', feederId, 'commands');
-      await addDoc(commandsRef, { command: 'feed', bowl: selectedBowlForAction, amount, timestamp: serverTimestamp() });
+      // Use Realtime Database for commands, as the ESP32 is listening there.
+      const rtdb = getDatabase();
+      const commandPath = `commands/${feederId}`;
+      // Use `set` to overwrite the command path, which the ESP32 expects.
+      await set(ref(rtdb, commandPath), { command: 'feed', bowl: selectedBowlForAction, amount, timestamp: rtdbServerTimestamp() });
       Alert.alert('Success', `Dispensing ${amount}g from Bowl ${selectedBowlForAction}.`);
     } catch (error) {
       console.error("Error sending feed command:", error);

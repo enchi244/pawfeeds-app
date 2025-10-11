@@ -1,19 +1,20 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { collection, DocumentData, onSnapshot, query } from 'firebase/firestore';
+import { collection, getDocs, onSnapshot, query, Unsubscribe, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    FlatList,
-    Image,
-    ListRenderItem,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  FlatList,
+  Image,
+  ListRenderItem,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { db } from '../../firebaseConfig'; // Import our database instance
+import { useAuth } from '../../context/AuthContext';
+import { db } from '../../firebaseConfig';
 
 const COLORS = {
   primary: '#8C6E63',
@@ -34,31 +35,45 @@ export default function PetsScreen() {
   const router = useRouter();
   const [pets, setPets] = useState<Pet[]>([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
 
   useEffect(() => {
-    // IMPORTANT: Replace this with your actual feeder ID from the Firebase console
-    const feederId = "eNFJODJ5YP1t3lw77WJG";
-    
-    // Create a reference to the 'pets' sub-collection
-    const petsCollectionRef = collection(db, 'feeders', feederId, 'pets');
-    const q = query(petsCollectionRef);
-
-    // Set up the real-time listener
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const petsData: Pet[] = [];
-      querySnapshot.forEach((doc: DocumentData) => {
-        petsData.push({
-          id: doc.id,
-          ...doc.data(),
-        } as Pet);
-      });
-      setPets(petsData);
+    if (!user) {
       setLoading(false);
-    });
+      return;
+    }
 
-    // This is a cleanup function that runs when the screen is unmounted
+    let unsubscribe: Unsubscribe = () => {};
+
+    const fetchPets = async () => {
+      try {
+        const feedersRef = collection(db, 'feeders');
+        const q = query(feedersRef, where('owner_uid', '==', user.uid));
+        const querySnapshot = await getDocs(q);
+
+        if (!querySnapshot.empty) {
+          const feederDoc = querySnapshot.docs[0];
+          const feederId = feederDoc.id;
+          const petsCollectionRef = collection(db, 'feeders', feederId, 'pets');
+          
+          unsubscribe = onSnapshot(petsCollectionRef, (snapshot) => {
+            const petsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Pet));
+            setPets(petsData);
+            setLoading(false);
+          });
+        } else {
+          setPets([]);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error("Error fetching pets:", error);
+        setLoading(false);
+      }
+    };
+
+    fetchPets();
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
   const handleAddPet = () => {
     router.push({

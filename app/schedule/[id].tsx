@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { addDoc, collection, deleteDoc, doc, DocumentData, getDoc, getDocs, query, updateDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, DocumentData, getDoc, getDocs, query, where, writeBatch } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -15,9 +15,10 @@ import {
   TextInput,
   TouchableOpacity,
   useColorScheme,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 import { recalculatePortionsForPet } from '../../utils/portionLogic'; // 1. Import our utility function
 
@@ -32,11 +33,13 @@ const COLORS = {
   overlay: 'rgba(0, 0, 0, 0.4)',
 };
 
-const DAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const DISPLAY_DAYS = ['S', 'M', 'T', 'W', 'TH', 'F', 'S']; // For UI Buttons
+const STORAGE_DAYS = ['U', 'M', 'T', 'W', 'R', 'F', 'S']; // For Firestore
 
 interface Pet {
   id: string;
   name: string;
+  recommendedPortion: number;
 }
 
 const parseTimeString = (timeString: string | undefined): Date => {
@@ -57,6 +60,7 @@ export default function ScheduleProfileScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const isEditing = id !== 'new';
   const colorScheme = useColorScheme();
+  const { user } = useAuth();
 
   const [name, setName] = useState('');
   const [date, setDate] = useState(new Date());
@@ -72,25 +76,53 @@ export default function ScheduleProfileScreen() {
 
   const [isLoading, setIsLoading] = useState(true);
   
-  const feederId = "eNFJODJ5YP1t3lw77WJG";
+  const [feederId, setFeederId] = useState<string | null>(null);
 
   const bowls = useMemo(() => [{ id: 1, name: 'Bowl 1' }, { id: 2, name: 'Bowl 2' }], []);
 
   useEffect(() => {
+    const fetchFeederId = async () => {
+      if (!user) {
+        Alert.alert('Error', 'You must be logged in to manage schedules.');
+        router.back();
+        return;
+      }
+      const feedersRef = collection(db, 'feeders');
+      const q = query(feedersRef, where('owner_uid', '==', user.uid));
+      const querySnapshot = await getDocs(q);
+      if (!querySnapshot.empty) {
+        setFeederId(querySnapshot.docs[0].id);
+      } else {
+        Alert.alert('No Feeder Found', 'Could not find a feeder associated with your account.');
+        router.back();
+      }
+    };
+    fetchFeederId();
+  }, [user, router]);
+
+  useEffect(() => {
     const fetchInitialData = async () => {
-      setIsLoading(true);
       
+      if (!feederId) {
+        setIsLoading(false); // Ensure loading stops if there's no feederId
+        return;
+      }
+
       try {
         const petsCollectionRef = collection(db, 'feeders', feederId, 'pets');
         const q = query(petsCollectionRef);
         const querySnapshot = await getDocs(q);
         const petsData: Pet[] = [];
         querySnapshot.forEach((doc: DocumentData) => {
-          petsData.push({ id: doc.id, name: doc.data().name } as Pet);
+          petsData.push({
+            id: doc.id,
+            name: doc.data().name,
+            recommendedPortion: doc.data().recommendedPortion || 0,
+          } as Pet);
         });
         setPets(petsData);
 
-        if (isEditing && id) {
+        if (isEditing && id && feederId) { // Only fetch if feederId is available
           const scheduleDocRef = doc(db, 'feeders', feederId, 'schedules', id);
           const docSnap = await getDoc(scheduleDocRef);
           if (docSnap.exists()) {
@@ -99,7 +131,7 @@ export default function ScheduleProfileScreen() {
             setDate(parseTimeString(data.time));
 
             if (data.repeatDays && Array.isArray(data.repeatDays)) {
-                const dayIndices = data.repeatDays.map(dayLetter => DAYS.indexOf(dayLetter)).filter(index => index !== -1);
+                const dayIndices = data.repeatDays.map(dayLetter => STORAGE_DAYS.indexOf(dayLetter)).filter(index => index !== -1);
                 setSelectedDays(dayIndices);
             }
             
@@ -118,7 +150,7 @@ export default function ScheduleProfileScreen() {
     };
     
     fetchInitialData();
-  }, [id, isEditing]);
+  }, [id, isEditing, feederId]); // Depend on feederId
 
 
   const onTimeChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
@@ -151,6 +183,10 @@ export default function ScheduleProfileScreen() {
       Alert.alert('Missing Information', 'Please provide a name, select a pet, and choose a bowl.');
       return;
     }
+    if (!feederId) {
+      Alert.alert('Error', 'Feeder ID not found. Cannot save schedule.');
+      return;
+    }
     
     setIsLoading(true);
 
@@ -160,28 +196,45 @@ export default function ScheduleProfileScreen() {
     const scheduleData = {
       name,
       time: timeString,
-      repeatDays: selectedDays.sort((a, b) => a - b).map(index => DAYS[index]),
+      repeatDays: selectedDays.sort((a, b) => a - b).map(index => STORAGE_DAYS[index]),
       petId: selectedPet.id,
       petName: selectedPet.name,
       bowlNumber: selectedBowl,
       isEnabled: true,
-      portionGrams: 0, // Default to 0, will be updated by the recalculation
+      portionGrams: 0, // This will be set in the batch update
     };
 
     try {
+      const batch = writeBatch(db);
+      const schedulesRef = collection(db, 'feeders', feederId, 'schedules');
+
+      // Get all existing enabled schedules for the pet
+      const q = query(schedulesRef, where('petId', '==', selectedPet.id), where('isEnabled', '==', true));
+      const querySnapshot = await getDocs(q);
+      
+      // Filter out the current schedule if we are editing it, as it will be replaced
+      const existingSchedules = querySnapshot.docs.filter(doc => doc.id !== id);
+      const totalSchedules = existingSchedules.length + 1; // +1 for the one we are saving
+      const newPortion = Math.round((selectedPet.recommendedPortion || 0) / totalSchedules);
+
+      // Update all existing schedules with the new portion
+      existingSchedules.forEach(scheduleDoc => {
+        batch.update(scheduleDoc.ref, { portionGrams: newPortion });
+      });
+
+      // Set the new portion for the schedule being saved
+      scheduleData.portionGrams = newPortion;
+
       if (isEditing && id) {
         const scheduleDocRef = doc(db, 'feeders', feederId, 'schedules', id);
-        await updateDoc(scheduleDocRef, scheduleData);
-        Alert.alert('Schedule Updated');
+        batch.update(scheduleDocRef, scheduleData);
       } else {
-        const schedulesCollectionRef = collection(db, 'feeders', feederId, 'schedules');
-        await addDoc(schedulesCollectionRef, scheduleData);
-        Alert.alert('Schedule Saved');
+        const newScheduleRef = doc(collection(db, 'feeders', feederId, 'schedules'));
+        batch.set(newScheduleRef, scheduleData);
       }
       
-      // 4. Trigger the portion recalculation after saving
-      await recalculatePortionsForPet(selectedPet.id);
-
+      await batch.commit();
+      Alert.alert(isEditing ? 'Schedule Updated' : 'Schedule Saved', 'All related feeding portions have been recalculated.');
       router.back();
     } catch (error) {
       console.error("Error saving schedule: ", error);
@@ -201,7 +254,7 @@ export default function ScheduleProfileScreen() {
           text: 'Delete', 
           style: 'destructive', 
           onPress: async () => {
-            if (isEditing && id && selectedPet) { // Ensure we have a pet to update
+            if (isEditing && id && selectedPet && feederId) { // Ensure we have a pet and feederId to update
               setIsLoading(true);
               try {
                 const scheduleDocRef = doc(db, 'feeders', feederId, 'schedules', id);
@@ -274,7 +327,7 @@ export default function ScheduleProfileScreen() {
         
         <Text style={styles.label}>Repeat on Days</Text>
         <View style={styles.daySelectorContainer}>
-          {DAYS.map((day, index) => (
+          {DISPLAY_DAYS.map((day, index) => (
             <TouchableOpacity 
               key={index}
               style={[styles.dayButton, selectedDays.includes(index) && styles.dayButtonSelected]}

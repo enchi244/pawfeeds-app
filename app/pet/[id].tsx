@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { addDoc, collection, deleteDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '../../context/AuthContext';
 import { db } from '../../firebaseConfig';
 import { recalculatePortionsForPet } from '../../utils/portionLogic';
 
@@ -53,6 +54,7 @@ const SegmentedControl: React.FC<SegmentedControlProps> = ({ options, selected, 
 export default function PetProfileScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { user } = useAuth();
   const isEditing = id !== 'new';
 
   const [name, setName] = useState('');
@@ -63,12 +65,31 @@ export default function PetProfileScreen() {
   const [activityLevel, setActivityLevel] = useState('Normal');
   const [recommendedPortion, setRecommendedPortion] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [feederId, setFeederId] = useState<string | null>(null);
 
-  const feederId = "eNFJODJ5YP1t3lw77WJG";
+  useEffect(() => {
+    const fetchFeederId = async () => {
+      if (!user) {
+        Alert.alert('Error', 'You must be logged in to manage pets.');
+        router.back();
+        return;
+      }
+      const feedersRef = collection(db, 'feeders');
+      const q = query(feedersRef, where('owner_uid', '==', user.uid));
+      const querySnapshot = await getDocs(q);
+      if (!querySnapshot.empty) {
+        setFeederId(querySnapshot.docs[0].id);
+      } else {
+        Alert.alert('No Feeder Found', 'Could not find a feeder associated with your account.');
+        router.back();
+      }
+    };
+    fetchFeederId();
+  }, [user, router]);
 
   useEffect(() => {
     const fetchPetData = async () => {
-      if (isEditing && id) {
+      if (isEditing && id && feederId) {
         setIsLoading(true);
         const petDocRef = doc(db, 'feeders', feederId, 'pets', id);
         const docSnap = await getDoc(petDocRef);
@@ -86,7 +107,7 @@ export default function PetProfileScreen() {
       }
     };
     fetchPetData();
-  }, [id, isEditing]);
+  }, [id, isEditing, feederId]);
 
   useEffect(() => {
     const calculatePortion = () => {
@@ -116,6 +137,10 @@ export default function PetProfileScreen() {
   const handleSave = async () => {
     if (!name || !age || !weight || !kcal) {
       Alert.alert('Missing Information', 'Please fill out all fields.');
+      return;
+    }
+    if (!feederId) {
+      Alert.alert('Error', 'Feeder ID not found. Cannot save pet.');
       return;
     }
     
@@ -161,7 +186,7 @@ export default function PetProfileScreen() {
           text: 'Delete', 
           style: 'destructive', 
           onPress: async () => {
-            if (isEditing && id) {
+            if (isEditing && id && feederId) {
               setIsLoading(true);
               try {
                 // Note: Consider deleting associated schedules or reassigning them in a real app
