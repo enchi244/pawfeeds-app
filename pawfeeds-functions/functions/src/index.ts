@@ -2,9 +2,9 @@ import { initializeApp } from "firebase-admin/app";
 import { getDatabase, ServerValue } from "firebase-admin/database";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
-import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { onRequest, Request } from "firebase-functions/v2/https";
- 
+import { onSchedule } from "firebase-functions/v2/scheduler";
+
 // Initialize Firebase Admin SDK
 initializeApp();
 
@@ -16,13 +16,10 @@ interface RegisterFeederRequest {
 
 /**
  * HTTP Cloud Function to register a new feeder device.
- * Deployed to the asia-southeast1 region for lower latency.
  */
 export const registerFeeder = onRequest(
-  // NEW: Add the region and CORS settings here
   { region: "asia-southeast1", cors: true },
   async (req: Request, res) => {
-    // We only accept POST requests
     if (req.method !== "POST") {
       res.status(405).send("Method Not Allowed");
       return;
@@ -30,7 +27,6 @@ export const registerFeeder = onRequest(
 
     const { feederId, owner_uid } = req.body as RegisterFeederRequest;
 
-    // Validate the incoming data
     if (!feederId || !owner_uid) {
       logger.error("Missing feederId or owner_uid in request body", req.body);
       res.status(400).send("Bad Request: Missing feederId or owner_uid.");
@@ -43,12 +39,11 @@ export const registerFeeder = onRequest(
       const db = getFirestore();
       const feederDocRef = db.collection("feeders").doc(feederId);
 
-      // Create the new feeder document in Firestore
       await feederDocRef.set({
         owner_uid: owner_uid,
         createdAt: Timestamp.now(),
         status: "online",
-        foodLevels: { "1": 100, "2": 100 }, // Set initial default values
+        foodLevels: { "1": 100, "2": 100 },
         streamStatus: { "1": "offline", "2": "offline" },
       });
 
@@ -62,42 +57,92 @@ export const registerFeeder = onRequest(
 );
 
 /**
- * Firestore trigger to notify the feeder device when a schedule is changed.
- * This is triggered on any write (create, update, delete) to a schedule document.
- * It sends a command to the Realtime Database, which the device is listening to.
+ * Scheduled Cloud Function that runs every minute to check all schedules.
  */
-export const onScheduleChange = onDocumentWritten(
-  // The path to the documents to listen to
-  { document: "feeders/{feederId}/schedules/{scheduleId}", region: "asia-southeast1" },
+export const scheduledFeedChecker = onSchedule(
+  {
+    schedule: "every 1 minutes",
+    timeZone: "Asia/Singapore", // PHT is GMT+8, same as Singapore
+    region: "asia-southeast1",
+  },
   async (event) => {
-    // Extract the feederId from the path parameters
-    const feederId = event.params.feederId;
-    const scheduleId = event.params.scheduleId;
+    logger.info("Running scheduled feed checker...");
 
-    // Safely check for event.data. The 'event.data' can be undefined on first invocation.
-    // A 'delete' event will have 'event.data.after' as undefined.
-    // A 'create' or 'update' will have 'event.data.after' defined.
-    // We only need to send a notification if a schedule is created, updated, or deleted.
-    // An undefined event.data means we can't determine the change, so we exit.
-    if (!event.data) {
-      logger.warn(`onScheduleChange triggered for ${feederId} with no event data. Exiting.`);
-      return;
-    }
+    // **FIX: Get current time adjusted for the correct timezone**
+    const now = new Date();
+    const timeZone = "Asia/Singapore";
+    
+    // Get hours and minutes in the specified timezone
+    const formatterHour = new Intl.DateTimeFormat('en-US', { hour: '2-digit', hour12: false, timeZone });
+    const formatterMinute = new Intl.DateTimeFormat('en-US', { minute: '2-digit', timeZone });
+    
+    const currentHour = formatterHour.format(now).padStart(2, '0');
+    // The hour '24' should be '00' for midnight comparison
+    const formattedHour = currentHour === '24' ? '00' : currentHour;
 
-    // The scheduleId is now used in the log message, resolving the warning.
-    logger.info(`Schedule ${scheduleId} changed for feeder ${feederId}. Notifying device.`);
+    const currentMinute = formatterMinute.format(now).padStart(2, '0');
+    const currentTime = `${formattedHour}:${currentMinute}`;
+    
+    // Get the current day of the week
+    const dayMap = ["U", "M", "T", "W", "R", "F", "S"];
+    const currentDay = dayMap[now.getDay()];
+
+    logger.info(`Current time in ${timeZone}: ${currentTime}, Day: ${currentDay}`);
+
+    const firestore = getFirestore();
+    const rtdb = getDatabase();
 
     try {
-      // Get a reference to the Realtime Database
-      const rtdb = getDatabase();
-      const commandRef = rtdb.ref(`commands/${feederId}`);
+      const feedersSnapshot = await firestore.collection("feeders").get();
+      if (feedersSnapshot.empty) {
+        logger.info("No feeders found.");
+        return;
+      }
 
-      // Set the command for the device to refetch its schedules
-      await commandRef.set({ command: "refetch_schedules", timestamp: ServerValue.TIMESTAMP });
+      const promises: Promise<any>[] = [];
 
-      logger.info(`Successfully sent 'refetch_schedules' command to feeder ${feederId}.`);
+      for (const feederDoc of feedersSnapshot.docs) {
+        const feederId = feederDoc.id;
+        const schedulesRef = feederDoc.ref.collection("schedules");
+        
+        const q = schedulesRef.where("isEnabled", "==", true);
+
+        const promise = q.get().then((scheduleSnapshot) => {
+          if (scheduleSnapshot.empty) {
+            return;
+          }
+
+          scheduleSnapshot.forEach((scheduleDoc) => {
+            const schedule = scheduleDoc.data();
+            
+            if (schedule.time === currentTime && schedule.repeatDays && schedule.repeatDays.includes(currentDay)) {
+              logger.info(`MATCH FOUND: Triggering schedule ${scheduleDoc.id} for feeder ${feederId}`);
+
+              const command = {
+                command: "feed",
+                bowl: schedule.bowlNumber,
+                amount: schedule.portionGrams,
+                timestamp: ServerValue.TIMESTAMP,
+              };
+
+              const commandRef = rtdb.ref(`commands/${feederId}`);
+              
+              commandRef.set(command).catch((err) => {
+                logger.error(`Failed to send command to feeder ${feederId} for schedule ${scheduleDoc.id}`, err);
+              });
+            }
+          });
+        }).catch(err => {
+            logger.error(`Error querying schedules for feeder ${feederId}:`, err);
+        });
+        promises.push(promise);
+      }
+
+      await Promise.all(promises);
+      logger.info("Scheduled feed checker finished.");
+
     } catch (error) {
-      logger.error(`Failed to send 'refetch_schedules' command for feeder ${feederId}:`, error);
+      logger.error("Error running scheduled feed checker:", error);
     }
   }
 );

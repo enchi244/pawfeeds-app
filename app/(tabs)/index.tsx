@@ -239,8 +239,42 @@ export default function DashboardScreen() {
     ]);
   };
   
+  const handleResetDevice = () => {
+    handleMenuClose();
+    Alert.alert(
+      "Reset Device",
+      "Are you sure you want to reset your device? This will delete all data and log you out.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reset",
+          style: "destructive",
+          onPress: async () => {
+            if (!feederId) {
+              Alert.alert("Error", "Feeder not identified.");
+              return;
+            }
+            try {
+              const rtdb = getDatabase();
+              const commandPath = `commands/${feederId}`;
+              await set(ref(rtdb, commandPath), {
+                command: "reset_device",
+                timestamp: rtdbServerTimestamp(),
+              });
+              await signOut(auth);
+              router.replace("/login");
+            } catch (error) {
+              console.error("Error resetting device:", error);
+              Alert.alert("Error", "Could not reset device.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleAccountPress = () => {
-    Alert.alert('Navigate', 'This would navigate to the account screen.');
+    router.push("/account/account");
     handleMenuClose();
   };
 
@@ -383,6 +417,7 @@ export default function DashboardScreen() {
             <Text style={styles.menuTitle}>Menu</Text>
             <TouchableOpacity style={styles.menuItem} onPress={handleAccountPress}><MaterialCommunityIcons name="account-circle-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Account</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('Coming Soon', 'Device provisioning will be available in a future update.')}><MaterialCommunityIcons name="plus-box-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Add Device</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={handleResetDevice}><MaterialCommunityIcons name="restart" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Reset Device</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('Coming Soon', 'Manual and tutorials will be available here.')}><MaterialCommunityIcons name="book-open-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Manual</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuLogoutButton} onPress={handleLogout}><MaterialCommunityIcons name="logout" size={24} color={COLORS.danger} style={styles.menuIcon} /><Text style={styles.menuLogoutText}>Logout</Text></TouchableOpacity>
           </View>
