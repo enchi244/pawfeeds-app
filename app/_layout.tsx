@@ -6,7 +6,8 @@ import { AuthProvider, useAuth } from '../context/AuthContext';
 SplashScreen.preventAutoHideAsync();
 
 function RootLayoutNav() {
-  const { isLoading } = useAuth();
+  const { authStatus } = useAuth();
+  const isLoading = authStatus === 'loading';
 
   useEffect(() => {
     if (!isLoading) {
@@ -14,8 +15,8 @@ function RootLayoutNav() {
     }
   }, [isLoading]);
 
-  // Render nothing while loading. The splash screen will be visible.
-  if (isLoading) {
+  // Render nothing while the auth state is loading. The splash screen will be visible.
+  if (authStatus === 'loading') {
     return null;
   }
 
@@ -25,6 +26,7 @@ function RootLayoutNav() {
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="(provisioning)" options={{ headerShown: false }} />
       <Stack.Screen name="pet/[id]" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="schedule/[id]" options={{ headerShown: false, presentation: 'modal' }} />
     </Stack>

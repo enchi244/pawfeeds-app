@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { getDatabase, ref, serverTimestamp as rtdbServerTimestamp, set } from 'firebase/database';
-import { collection, getDocs, onSnapshot, query, Unsubscribe, where } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDocs, onSnapshot, query, Unsubscribe, where } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -243,29 +243,43 @@ export default function DashboardScreen() {
     handleMenuClose();
     Alert.alert(
       "Reset Device",
-      "Are you sure you want to reset your device? This will delete all data and log you out.",
+      "This will erase the feeder from your account and send a reset command to the device. Are you sure you want to proceed?",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Reset",
           style: "destructive",
           onPress: async () => {
-            if (!feederId) {
-              Alert.alert("Error", "Feeder not identified.");
+            if (!feederId || !user) {
+              Alert.alert("Error", "Feeder or user not identified. Cannot reset.");
               return;
             }
             try {
+              // 1. Send RTDB command to the hardware device
               const rtdb = getDatabase();
               const commandPath = `commands/${feederId}`;
               await set(ref(rtdb, commandPath), {
                 command: "reset_device",
                 timestamp: rtdbServerTimestamp(),
               });
+
+              // 2. Delete the feeder document from Firestore. This will also delete all its subcollections.
+              const feederDocRef = doc(db, 'feeders', feederId);
+              await deleteDoc(feederDocRef);
+              
+              // 3. Delete the user document from Firestore.
+              const userDocRef = doc(db, 'users', user.uid);
+              await deleteDoc(userDocRef);
+
+              // 4. Sign out the user and navigate to the login screen
               await signOut(auth);
               router.replace("/login");
+              
+              Alert.alert("Success", "Device has been reset and removed from your account.");
+
             } catch (error) {
               console.error("Error resetting device:", error);
-              Alert.alert("Error", "Could not reset device.");
+              Alert.alert("Error", "Could not complete the reset process. Please try again.");
             }
           },
         },

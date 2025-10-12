@@ -48,10 +48,8 @@ struct Command {
   int amount;
 };
 Command pendingCommand;
-
 enum DeviceState { PROVISIONING_MODE, CONNECTING_WIFI, AUTHENTICATING_FIREBASE, REGISTERING_FIREBASE, OPERATIONAL, ERROR };
 DeviceState currentState = PROVISIONING_MODE;
-
 // --- Function Prototypes ---
 void tokenStatusCallback(TokenInfo info);
 void connectToWiFi();
@@ -67,8 +65,6 @@ void startRTDBStream();
 void streamCallback(FirebaseStream data);
 void streamTimeoutCallback(bool timeout);
 void forwardSlaveLogs();
-
-
 void setup() {
   Serial.begin(115200);
   Serial.println("\n[PawFeeds] Booting...");
@@ -77,49 +73,50 @@ void setup() {
   loadCellBowl1.begin(HX711_BOWL_1_DOUT_PIN, HX711_BOWN_1_SCK_PIN);
 
   preferences.begin("pawfeeds", false);
-  if (preferences.getString("ssid", "").length() > 0) {
+if (preferences.getString("ssid", "").length() > 0) {
     currentState = CONNECTING_WIFI;
-  } else {
+} else {
     currentState = PROVISIONING_MODE;
     startProvisioningServer();
   }
 }
 
 void loop() {
-  forwardSlaveLogs(); // Forward any logs from slave cameras to the main monitor
+  forwardSlaveLogs();
+// Forward any logs from slave cameras to the main monitor
 
   switch (currentState) {
     case PROVISIONING_MODE:
       handleClient();
-      break;
+break;
     case CONNECTING_WIFI:
       connectToWiFi();
       break;
     case AUTHENTICATING_FIREBASE:
       authenticateWithFirebase();
       break;
-    case REGISTERING_FIREBASE:
+case REGISTERING_FIREBASE:
       registerDeviceWithFirestore();
       break;
     case OPERATIONAL:
       if (!streamActive) {
         startRTDBStream();
-      }
+}
 
       if (Firebase.ready() && !Firebase.RTDB.readStream(&stream_fbdo)) {
         Serial.println("[ERROR] Stream read error!");
-        streamActive = false;
+streamActive = false;
       }
 
       if (newCommandAvailable) {
         processPendingCommand();
-        newCommandAvailable = false;
+newCommandAvailable = false;
       }
       break;
     case ERROR:
       Serial.println("[ERROR] Halting.");
       delay(10000);
-      break;
+break;
   }
   delay(100);
 }
@@ -127,48 +124,48 @@ void loop() {
 void tokenStatusCallback(TokenInfo info) {
   if (info.status == token_status_ready) {
     Serial.println("[AUTH] Token obtained successfully.");
-  } else if (info.status == token_status_error) {
+} else if (info.status == token_status_error) {
     Serial.printf("[AUTH] Token error: %s\n", info.error.message.c_str());
-  }
+}
 }
 
 void connectToWiFi() {
   Serial.println("[WIFI] Connecting...");
   WiFi.begin(preferences.getString("ssid").c_str(), preferences.getString("pass").c_str());
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+while (WiFi.status() != WL_CONNECTED && attempts < 30) {
     delay(500);
     Serial.print(".");
     attempts++;
-  }
+}
 
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("\n[WIFI] Connected!");
     currentState = AUTHENTICATING_FIREBASE;
-  } else {
+} else {
     Serial.println("\n[WIFI] Failed!");
     currentState = ERROR;
-  }
+}
 }
 
 void authenticateWithFirebase() {
   if(Firebase.ready()) {
     Serial.println("[AUTH] Already authenticated.");
     feederId = preferences.getString("feederId", "");
-    if(feederId.length() > 0) {
+if(feederId.length() > 0) {
       currentState = OPERATIONAL;
-    } else {
+} else {
       currentState = REGISTERING_FIREBASE;
     }
     return;
-  }
+}
   
   Serial.println("[AUTH] Configuring service account...");
   config.database_url = FIREBASE_DATABASE_URL;
   config.service_account.data.client_email = SERVICE_ACCOUNT_CLIENT_EMAIL;
   config.service_account.data.project_id = FIREBASE_PROJECT_ID;
   config.service_account.data.private_key = SERVICE_ACCOUNT_PRIVATE_KEY;
-  config.token_status_callback = tokenStatusCallback;
+config.token_status_callback = tokenStatusCallback;
 
   Firebase.begin(&config, &auth);
   Firebase.reconnectWiFi(true);
@@ -177,12 +174,12 @@ void authenticateWithFirebase() {
 void registerDeviceWithFirestore() {
   if (!Firebase.ready()) {
     Serial.println("[FIREBASE] Waiting for auth token...");
-    return;
+return;
   }
 
   Serial.println("[FIREBASE] Registering device...");
   String owner_uid = preferences.getString("owner_uid", "");
-  if (owner_uid.length() == 0) {
+if (owner_uid.length() == 0) {
     currentState = ERROR;
     return;
   }
@@ -190,38 +187,37 @@ void registerDeviceWithFirestore() {
   FirebaseJson content;
   content.set("fields/owner_uid/stringValue", owner_uid);
   content.set("fields/online/booleanValue", true);
-  String feederContent;
+String feederContent;
   content.toString(feederContent, false);
 
   if (Firebase.Firestore.createDocument(&fbdo, FIREBASE_PROJECT_ID, "", "feeders", feederContent.c_str())) {
     Serial.println("[FIREBASE] Feeder document created.");
-    feederId = parseFeederIdFromResponse(fbdo.payload());
+feederId = parseFeederIdFromResponse(fbdo.payload());
     if (feederId.length() > 0) {
       preferences.putString("feederId", feederId);
-      
-      // --- BEGIN NEW LOGIC: SEND FEEDER ID TO SLAVES ---
+// --- BEGIN NEW LOGIC: SEND FEEDER ID TO SLAVES ---
       Serial.println("[PROVISIONING] Sending Feeder ID to slave cameras...");
-      String feederIdPacket = "FEEDER_ID|";
+String feederIdPacket = "FEEDER_ID|";
       feederIdPacket.concat(feederId);
       feederIdPacket.concat("\n");
 
       // Send to Slave 1
       Serial1.begin(9600, SERIAL_8N1, SLAVE_1_SERIAL_TX_PIN, SLAVE_1_SERIAL_RX_PIN);
-      Serial.print("[PROVISIONING] Sending ID to Slave 1...");
+Serial.print("[PROVISIONING] Sending ID to Slave 1...");
       Serial1.print(feederIdPacket);
       delay(200);
       Serial.println("Done.");
 
       // Send to Slave 2
       Serial2.begin(9600, SERIAL_8N1, SLAVE_2_SERIAL_TX_PIN, SLAVE_2_SERIAL_RX_PIN);
-      Serial.print("[PROVISIONING] Sending ID to Slave 2...");
+Serial.print("[PROVISIONING] Sending ID to Slave 2...");
       Serial2.print(feederIdPacket);
       delay(200);
       Serial.println("Done.");
       // --- END NEW LOGIC ---
 
       String usersPath = "users/";
-      usersPath.concat(owner_uid);
+usersPath.concat(owner_uid);
       
       FirebaseJson userUpdateContent;
       userUpdateContent.set("fields/feederId/stringValue", feederId);
@@ -230,18 +226,18 @@ void registerDeviceWithFirestore() {
       
       if (Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "", usersPath.c_str(), userContent.c_str(), "feederId")) {
           Serial.println("[FIREBASE] User patched. Setup complete!");
-          currentState = OPERATIONAL;
+currentState = OPERATIONAL;
       } else {
           Serial.printf("[ERROR] Failed to patch user: %s\n", fbdo.errorReason().c_str());
-          currentState = ERROR;
+currentState = ERROR;
       }
     } else {
       Serial.println("[ERROR] Failed to parse feeder ID from response.");
-      currentState = ERROR;
+currentState = ERROR;
     }
   } else {
     Serial.printf("[ERROR] Failed to create feeder doc: %s\n", fbdo.errorReason().c_str());
-    currentState = ERROR;
+currentState = ERROR;
   }
 }
 
@@ -250,7 +246,7 @@ void startProvisioningServer() {
   Serial.println(AP_SSID);
   WiFi.softAP(AP_SSID, AP_PASSWORD);
   IPAddress IP = WiFi.softAPIP();
-  Serial.print("[PROVISIONING] AP IP address: ");
+Serial.print("[PROVISIONING] AP IP address: ");
   Serial.println(IP.toString());
   server.begin();
   Serial.println("[PROVISIONING] Web server started.");
@@ -258,46 +254,45 @@ void startProvisioningServer() {
 
 void handleClient() {
   WiFiClient client = server.available();
-  if (!client) return;
+if (!client) return;
   String currentLine = "";
   unsigned long timeout = millis();
   String header = "";
-  while (client.connected() && millis() - timeout < 2000) {
+while (client.connected() && millis() - timeout < 2000) {
     if (client.available()) {
       char c = client.read();
-      header += c;
+header += c;
       if (c == '\n') {
         if (currentLine.length() == 0) {
           if (header.indexOf("GET /networks") >= 0) {
             int n = WiFi.scanNetworks();
-            String json = "[";
+String json = "[";
             for (int i = 0; i < n; ++i) {
               if (i > 0) json.concat(",");
-              json.concat("{\"ssid\":\"");
+json.concat("{\"ssid\":\"");
               json.concat(WiFi.SSID(i));
               json.concat("\",\"rssi\":");
-              json.concat(WiFi.RSSI(i));
+json.concat(WiFi.RSSI(i));
               json.concat("}");
             }
             json += "]";
             client.println("HTTP/1.1 200 OK");
-            client.println("Content-type:application/json");
+client.println("Content-type:application/json");
             client.println("Connection: close");
             client.println();
             client.println(json);
           } else if (header.indexOf("POST /save") >= 0) {
             String body;
-            while (client.available()) { body += (char)client.read(); }
+while (client.available()) { body += (char)client.read(); }
             int ssid_start = body.indexOf("ssid=") + 5;
-            int ssid_end = body.indexOf("&", ssid_start);
+int ssid_end = body.indexOf("&", ssid_start);
             String ssid = urlDecode(body.substring(ssid_start, ssid_end));
             int pass_start = body.indexOf("pass=") + 5;
-            int pass_end = body.indexOf("&", pass_start);
+int pass_end = body.indexOf("&", pass_start);
             String pass = urlDecode(body.substring(pass_start, pass_end));
             int uid_start = body.indexOf("uid=") + 4;
             String uid = urlDecode(body.substring(uid_start));
-            
-            preferences.putString("ssid", ssid);
+preferences.putString("ssid", ssid);
             preferences.putString("pass", pass);
             preferences.putString("owner_uid", uid);
             
@@ -307,17 +302,16 @@ void handleClient() {
             credentialsPacket.concat("|");
             credentialsPacket.concat(pass);
             credentialsPacket.concat("\n");
-
-            // Send to Slave 1
+// Send to Slave 1
             Serial1.begin(9600, SERIAL_8N1, SLAVE_1_SERIAL_TX_PIN, SLAVE_1_SERIAL_RX_PIN);
-            Serial.print("[PROVISIONING] Sending to Slave 1...");
+Serial.print("[PROVISIONING] Sending to Slave 1...");
             Serial1.print(credentialsPacket);
             delay(200);
             Serial.println("Done.");
 
             // Send to Slave 2
             Serial2.begin(9600, SERIAL_8N1, SLAVE_2_SERIAL_TX_PIN, SLAVE_2_SERIAL_RX_PIN);
-            Serial.print("[PROVISIONING] Sending to Slave 2...");
+Serial.print("[PROVISIONING] Sending to Slave 2...");
             Serial2.print(credentialsPacket);
             delay(200);
             Serial.println("Done.");
@@ -325,21 +319,21 @@ void handleClient() {
             Serial.println("[PROVISIONING] Forwarding complete.");
 
             client.println("HTTP/1.1 200 OK\r\nContent-type:text/html\r\n\r\n<h1>Saved! Restarting...</h1>");
-            delay(100);
-          }
+            delay(1500); // Increased delay to ensure response is sent
+}
           break;
-        } else {
+} else {
           currentLine = "";
-        }
+}
       } else if (c != '\r') {
         currentLine += c;
-      }
+}
     }
   }
   client.stop();
   if (header.indexOf("POST /save") >= 0) {
     Serial.println("[PROVISIONING] Credentials saved. Restarting device.");
-    ESP.restart();
+ESP.restart();
   }
 }
 
@@ -347,33 +341,33 @@ String parseFeederIdFromResponse(String response) {
     FirebaseJson json;
     json.setJsonData(response);
     FirebaseJsonData result;
-    if (json.get(result, "name")) {
+if (json.get(result, "name")) {
         String path = result.to<String>();
         int lastSlash = path.lastIndexOf('/');
-        if (lastSlash != -1) {
+if (lastSlash != -1) {
             return path.substring(lastSlash + 1);
-        }
+}
     }
     return "";
 }
 
 String urlDecode(String str) {
   String decodedString = "";
-  char temp[] = "0x00";
+char temp[] = "0x00";
   char c;
   for (size_t i = 0; i < str.length(); i++) {
     c = str.charAt(i);
-    if (c == '+') {
+if (c == '+') {
       decodedString += ' ';
-    } else if (c == '%') {
+} else if (c == '%') {
       i++;
       temp[2] = str.charAt(i);
       i++;
       temp[3] = str.charAt(i);
-      decodedString += (char)strtol(temp, NULL, 16);
+decodedString += (char)strtol(temp, NULL, 16);
     } else {
       decodedString += c;
-    }
+}
   }
   return decodedString;
 }
@@ -381,44 +375,44 @@ String urlDecode(String str) {
 void processPendingCommand() {
     if (pendingCommand.amount > 0 && pendingCommand.bowl > 0) {
         Serial.printf("[COMMAND] Processing command! Bowl: %d, Amount: %d\n", pendingCommand.bowl, pendingCommand.amount);
-        dispenseFood(pendingCommand.bowl, pendingCommand.amount);
+dispenseFood(pendingCommand.bowl, pendingCommand.amount);
  
         String fullStreamPath = streamPath;
         fullStreamPath.concat(feederId);
         if (Firebase.RTDB.deleteNode(&fbdo, fullStreamPath.c_str())) {
             Serial.println("[COMMAND] Command node deleted successfully.");
-        } else {
+} else {
             Serial.printf("[COMMAND] FAILED to delete command node: %s\n", fbdo.errorReason().c_str());
-        }
+}
     }
 }
 
 void dispenseFood(int bowlNumber, int amount) {
     Serial.printf("[SERVO] Dispensing %d grams from bowl %d.\n", amount, bowlNumber);
-    Servo* targetServo = nullptr;
+Servo* targetServo = nullptr;
     if (bowlNumber == 1) targetServo = &servoBowl1;
     else if (bowlNumber == 2) targetServo = &servoBowl2;
-
-    if (targetServo != nullptr) {
+if (targetServo != nullptr) {
         long dispenseDuration = amount * DISPENSE_MS_PER_GRAM;
-        Serial.printf("[SERVO] Rotating for %ld ms.\n", dispenseDuration);
+Serial.printf("[SERVO] Rotating for %ld ms.\n", dispenseDuration);
 
         targetServo->write(0); // Start dispensing
         delay(dispenseDuration);
-        targetServo->write(90); // Stop dispensing
+        targetServo->write(90);
+// Stop dispensing
     }
 }
 
 void startRTDBStream() {
     if (feederId.length() == 0 || !Firebase.ready()) return;
-    String fullStreamPath = streamPath;
+String fullStreamPath = streamPath;
     fullStreamPath.concat(feederId);
     Serial.print("[STREAM] Starting stream on path: ");
     Serial.println(fullStreamPath);
-    if (!Firebase.RTDB.beginStream(&stream_fbdo, fullStreamPath.c_str())) {
+if (!Firebase.RTDB.beginStream(&stream_fbdo, fullStreamPath.c_str())) {
         Serial.printf("[STREAM] Could not begin stream: %s\n", stream_fbdo.errorReason().c_str());
         return;
-    }
+}
     Firebase.RTDB.setStreamCallback(&stream_fbdo, streamCallback, streamTimeoutCallback);
     streamActive = true;
     Serial.println("[STREAM] Stream started successfully.");
@@ -426,30 +420,29 @@ void startRTDBStream() {
 
 void streamCallback(FirebaseStream data) {
     Serial.printf("[STREAM] Event: %s, Path: %s, Data: %s\n", data.eventType().c_str(), data.dataPath().c_str(), data.payload().c_str());
-    if (data.dataType() == "json" && data.dataPath() == "/") {
+if (data.dataType() == "json" && data.dataPath() == "/") {
         FirebaseJson &json = data.to<FirebaseJson>();
-        FirebaseJsonData result;
+FirebaseJsonData result;
         String command;
         if (json.get(result, "command")) {
             command = result.to<String>();
-        }
+}
 
         if (command == "feed") {
             unsigned long newTimestamp = 0;
-            int bowl = 0;
+int bowl = 0;
             int amount = 0;
             if (json.get(result, "timestamp")) newTimestamp = result.to<unsigned long>();
-            if (json.get(result, "bowl")) bowl = result.to<int>();
+if (json.get(result, "bowl")) bowl = result.to<int>();
             if (json.get(result, "amount")) amount = result.to<int>();
-            
-            if (newTimestamp > 0 && newTimestamp > lastCmdTimestamp) {
+if (newTimestamp > 0 && newTimestamp > lastCmdTimestamp) {
                 lastCmdTimestamp = newTimestamp;
-                pendingCommand = {bowl, amount};
+pendingCommand = {bowl, amount};
                 newCommandAvailable = true;
             }
         } else if (command == "reset_device") {
             Serial.println("[SYSTEM] Reset command received. Clearing credentials and restarting.");
-            preferences.clear();
+preferences.clear();
             ESP.restart();
         }
     }
@@ -458,7 +451,7 @@ void streamCallback(FirebaseStream data) {
 void streamTimeoutCallback(bool timeout) {
   if (timeout) {
     Serial.println("[STREAM] Stream timed out. It will be restarted automatically.");
-    streamActive = false;
+streamActive = false;
   }
 }
 
@@ -466,10 +459,10 @@ void forwardSlaveLogs() {
   // Check if Slave 1 (Camera 1) has sent anything and forward it
   if (Serial1.available()) {
     Serial.write(Serial1.read());
-  }
+}
   
   // Check if Slave 2 (Camera 2) has sent anything and forward it
   if (Serial2.available()) {
     Serial.write(Serial2.read());
-  }
+}
 }
