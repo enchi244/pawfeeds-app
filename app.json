@@ -15,7 +15,8 @@
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png"
       },
-      "package": "com.xepharus.pawfeedsapp"
+      "package": "com.xepharus.pawfeedsapp",
+      "usesCleartextTraffic": true
     },
     "web": {
       "output": "static",

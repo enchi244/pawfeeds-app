@@ -1,9 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { ResizeMode, Video } from 'expo-av';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { getDatabase, ref, serverTimestamp as rtdbServerTimestamp, set } from 'firebase/database';
 import { collection, deleteDoc, doc, getDocs, onSnapshot, query, Unsubscribe, where } from 'firebase/firestore';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -60,38 +61,72 @@ interface BowlCardProps {
   perMealPortion: number;
   onPressFeed: () => void;
   onPressFilter: () => void;
+  streamUri: string | null;
 }
 
-const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel, perMealPortion, onPressFeed, onPressFilter }) => {
-  const isUnassigned = !selectedPet;
-  return (
-    <View style={[styles.card, { width: CARD_WIDTH }]}>
-      <View style={styles.cardHeader}>
-        <TouchableOpacity onPress={onPressFilter} style={styles.cardTitleContainer}>
-            <Text style={[styles.cardTitle, isUnassigned && { color: '#999' }]}>{`Bowl ${bowlNumber} - ${selectedPet?.name || 'No Pet Scheduled'}`}</Text>
-            <MaterialCommunityIcons name="chevron-down" size={24} color={COLORS.text} />
-        </TouchableOpacity>
-        <View style={styles.onlineIndicator} />
-      </View>
-      <View style={styles.videoFeedPlaceholder}>
-        <Text style={styles.videoFeedText}>Live Feed Unavailable</Text>
-      </View>
-      <View style={styles.statusContainer}>
-        <Text style={styles.statusLabel}>Food Level</Text>
-        <View style={styles.progressBarBackground}>
-          <View style={[styles.progressBarFill, { width: `${foodLevel}%` }]} />
+const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel, perMealPortion, onPressFeed, onPressFilter, streamUri }) => {
+    const isUnassigned = !selectedPet;
+    const videoRef = useRef<Video>(null);
+  
+    useEffect(() => {
+      const loadVideo = async () => {
+        if (videoRef.current) {
+          if (streamUri) {
+            try {
+              await videoRef.current.unloadAsync();
+              await videoRef.current.loadAsync({ uri: streamUri });
+              await videoRef.current.playAsync();
+            } catch (error) {
+              console.error(`Error loading video for bowl ${bowlNumber}:`, error);
+            }
+          } else {
+            await videoRef.current.unloadAsync();
+          }
+        }
+      };
+      loadVideo();
+    }, [streamUri]);
+  
+    return (
+      <View style={[styles.card, { width: CARD_WIDTH }]}>
+        <View style={styles.cardHeader}>
+          <TouchableOpacity onPress={onPressFilter} style={styles.cardTitleContainer}>
+              <Text style={[styles.cardTitle, isUnassigned && { color: '#999' }]}>{`Bowl ${bowlNumber} - ${selectedPet?.name || 'No Pet Scheduled'}`}</Text>
+              <MaterialCommunityIcons name="chevron-down" size={24} color={COLORS.text} />
+          </TouchableOpacity>
+          <View style={styles.onlineIndicator} />
         </View>
-        <Text style={styles.statusPercentage}>{foodLevel}%</Text>
+        <View style={styles.videoFeedPlaceholder}>
+          {streamUri ? (
+            <Video
+              ref={videoRef}
+              style={styles.video}
+              source={{ uri: streamUri }}
+              shouldPlay
+              isLooping
+              resizeMode={ResizeMode.COVER}
+              onError={(error) => console.error(`Video error for bowl ${bowlNumber}:`, error)}
+            />
+          ) : (
+            <Text style={styles.videoFeedText}>Live Feed Unavailable</Text>
+          )}
+        </View>
+        <View style={styles.statusContainer}>
+          <Text style={styles.statusLabel}>Food Level</Text>
+          <View style={styles.progressBarBackground}>
+            <View style={[styles.progressBarFill, { width: `${foodLevel}%` }]} />
+          </View>
+          <Text style={styles.statusPercentage}>{foodLevel}%</Text>
+        </View>
+        <TouchableOpacity style={[styles.feedButton, isUnassigned && styles.disabledButton]} onPress={onPressFeed} disabled={isUnassigned}>
+          <Text style={styles.feedButtonText}>Feed Now</Text>
+        </TouchableOpacity>
+        <Text style={styles.portionText}>
+          {`Next meal portion: ${perMealPortion > 0 ? perMealPortion : '--'}g`}
+        </Text>
       </View>
-      <TouchableOpacity style={[styles.feedButton, isUnassigned && styles.disabledButton]} onPress={onPressFeed} disabled={isUnassigned}>
-        <Text style={styles.feedButtonText}>Feed Now</Text>
-      </TouchableOpacity>
-      <Text style={styles.portionText}>
-        {`Next meal portion: ${perMealPortion > 0 ? perMealPortion : '--'}g`}
-      </Text>
-    </View>
-  );
-};
+    );
+  };
 
 const formatScheduleTime = (timeString: string): string => {
     if (!timeString) return 'Invalid Time';
@@ -127,6 +162,8 @@ export default function DashboardScreen() {
   const [selectedPetInBowl, setSelectedPetInBowl] = useState<{[bowlId: string]: string | undefined}>({});
   
   const [feederId, setFeederId] = useState<string | null>(null);
+  const [streamUris, setStreamUris] = useState<{ [bowlId: string]: string | null }>({});
+
   const bowlsConfig = [{ id: 1, foodLevel: 85 }, { id: 2, foodLevel: 60 }];
 
   useEffect(() => {
@@ -145,6 +182,15 @@ export default function DashboardScreen() {
       if (!querySnapshot.empty) {
         const currentFeederId = querySnapshot.docs[0].id;
         setFeederId(currentFeederId);
+        
+        // IMPORTANT: Replace 'YOUR_COMPUTER_IP' with your actual local IP address
+        const relayServerIp = '192.168.1.5';
+        const relayServerPort = 8080;
+
+        setStreamUris({
+          '1': `http://${relayServerIp}:${relayServerPort}/stream/1`, 
+          '2': `http://${relayServerIp}:${relayServerPort}/stream/2`, 
+        });
 
         const petsRef = collection(db, 'feeders', currentFeederId, 'pets');
         const petsUnsub = onSnapshot(petsRef, (snapshot) => {
@@ -160,7 +206,6 @@ export default function DashboardScreen() {
         unsubscribes.push(schedulesUnsub);
       } else {
         setIsLoading(false);
-        // No feeder found, the UI will show an empty state.
       }
     };
 
@@ -180,7 +225,6 @@ export default function DashboardScreen() {
           addedPetIds[schedule.bowlNumber] = new Set();
         }
 
-        // Find the pet and add it to the bowl's list if not already there
         const pet = pets.find(p => p.id === schedule.petId);
         if (pet && !addedPetIds[schedule.bowlNumber].has(pet.id)) {
           bowlMap[schedule.bowlNumber].push(pet);
@@ -255,7 +299,6 @@ export default function DashboardScreen() {
               return;
             }
             try {
-              // 1. Send RTDB command to the hardware device
               const rtdb = getDatabase();
               const commandPath = `commands/${feederId}`;
               await set(ref(rtdb, commandPath), {
@@ -263,15 +306,12 @@ export default function DashboardScreen() {
                 timestamp: rtdbServerTimestamp(),
               });
 
-              // 2. Delete the feeder document from Firestore. This will also delete all its subcollections.
               const feederDocRef = doc(db, 'feeders', feederId);
               await deleteDoc(feederDocRef);
               
-              // 3. Delete the user document from Firestore.
               const userDocRef = doc(db, 'users', user.uid);
               await deleteDoc(userDocRef);
 
-              // 4. Sign out the user and navigate to the login screen
               await signOut(auth);
               router.replace("/login");
               
@@ -302,13 +342,13 @@ export default function DashboardScreen() {
         if (filters.bowl1 && schedule.bowlNumber === 1) return true;
         if (filters.bowl2 && schedule.bowlNumber === 2) return true;
         return false;
-    }).sort((a, b) => a.time.localeCompare(b.time)); // Sort by time for display
+    }).sort((a, b) => a.time.localeCompare(b.time));
   }, [schedules, filters]);
 
 
   const handleOpenFeedModal = (bowlNumber: number) => {
     setSelectedBowlForAction(bowlNumber);
-    setIsCustomFeedVisible(false); // Reset custom feed view on open
+    setIsCustomFeedVisible(false);
     setIsFeedModalVisible(true);
   };
 
@@ -334,10 +374,8 @@ export default function DashboardScreen() {
       return;
     }
     try {
-      // Use Realtime Database for commands, as the ESP32 is listening there.
       const rtdb = getDatabase();
       const commandPath = `commands/${feederId}`;
-      // Use `set` to overwrite the command path, which the ESP32 expects.
       await set(ref(rtdb, commandPath), { command: 'feed', bowl: selectedBowlForAction, amount, timestamp: rtdbServerTimestamp() });
       Alert.alert('Success', `Dispensing ${amount}g from Bowl ${selectedBowlForAction}.`);
     } catch (error) {
@@ -384,7 +422,7 @@ export default function DashboardScreen() {
                 const selectedPet = pets.find(p => p.id === selectedPetId);
                 const activeScheduleCount = selectedPet ? (activeSchedulesByPetId[selectedPet.id] || 0) : 0;
                 const perMealPortion = (selectedPet && selectedPet.recommendedPortion && activeScheduleCount > 0) ? Math.round(selectedPet.recommendedPortion / activeScheduleCount) : 0;
-
+                const streamUri = streamUris[bowl.id] || null;
                 return (
                     <BowlCard
                         key={bowl.id}
@@ -394,6 +432,7 @@ export default function DashboardScreen() {
                         perMealPortion={perMealPortion}
                         onPressFeed={() => handleOpenFeedModal(bowl.id)}
                         onPressFilter={() => handleOpenFilterModal(bowl.id)}
+                        streamUri={streamUri}
                     />
                 );
             })}
@@ -442,7 +481,6 @@ export default function DashboardScreen() {
       <Modal visible={isFeedModalVisible} transparent={true} animationType="fade" onRequestClose={() => setIsFeedModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} onPress={() => setIsFeedModalVisible(false)} activeOpacity={1}>
             <TouchableOpacity activeOpacity={1} style={styles.selectionModalContent}>
-                {/* The content of the modal is now wrapped to prevent closing when tapped inside */}
                 <View style={{padding: 2, alignItems: 'center', width: '100%'}}>
                 <TouchableOpacity style={[styles.modalButton, !feedModalData?.perMealPortion && styles.disabledButton]} onPress={() => handleDispenseFeed(feedModalData?.perMealPortion || 0)} disabled={!feedModalData?.perMealPortion}>
                     <Text style={styles.modalButtonText}>{`Dispense Meal (${feedModalData?.perMealPortion || 0}g)`}</Text>
@@ -498,7 +536,10 @@ const styles = StyleSheet.create({
   cardTitleContainer: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, marginRight: 10 },
   cardTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text, flexShrink: 1 },
   onlineIndicator: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#4CAF50' },
-  videoFeedPlaceholder: { height: 180, backgroundColor: '#E0E0E0', borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+  videoFeedPlaceholder: { height: 180, backgroundColor: '#E0E0E0', borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 12, overflow: 'hidden' },
+  video: {
+    ...StyleSheet.absoluteFillObject,
+  },
   videoFeedText: { color: '#999', fontWeight: '500' },
   statusContainer: { marginBottom: 16 },
   statusLabel: { fontSize: 14, color: '#666', marginBottom: 6 },
