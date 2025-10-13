@@ -1,10 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { ResizeMode, Video } from 'expo-av';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { getDatabase, ref, serverTimestamp as rtdbServerTimestamp, set } from 'firebase/database';
 import { collection, deleteDoc, doc, getDocs, onSnapshot, query, Unsubscribe, where } from 'firebase/firestore';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,6 +20,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+// Import WebView
+import { WebView } from 'react-native-webview';
 import { useAuth } from '../../context/AuthContext';
 import { auth, db } from '../../firebaseConfig';
 
@@ -66,27 +67,24 @@ interface BowlCardProps {
 
 const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel, perMealPortion, onPressFeed, onPressFilter, streamUri }) => {
     const isUnassigned = !selectedPet;
-    const videoRef = useRef<Video>(null);
-  
-    useEffect(() => {
-      const loadVideo = async () => {
-        if (videoRef.current) {
-          if (streamUri) {
-            try {
-              await videoRef.current.unloadAsync();
-              await videoRef.current.loadAsync({ uri: streamUri });
-              await videoRef.current.playAsync();
-            } catch (error) {
-              console.error(`Error loading video for bowl ${bowlNumber}:`, error);
-            }
-          } else {
-            await videoRef.current.unloadAsync();
-          }
-        }
-      };
-      loadVideo();
-    }, [streamUri]);
-  
+
+    // +++ FIX: This HTML provides a styled wrapper for the stream inside the WebView +++
+    const generateStreamHtml = (uri: string) => `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+          <style>
+            body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #000; }
+            img { width: 100%; height: 100%; object-fit: contain; }
+          </style>
+        </head>
+        <body>
+          <img src="${uri}" />
+        </body>
+      </html>
+    `;
+    
     return (
       <View style={[styles.card, { width: CARD_WIDTH }]}>
         <View style={styles.cardHeader}>
@@ -98,14 +96,21 @@ const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel,
         </View>
         <View style={styles.videoFeedPlaceholder}>
           {streamUri ? (
-            <Video
-              ref={videoRef}
+            // +++ FIX: More robust WebView configuration for live streaming +++
+            <WebView
               style={styles.video}
-              source={{ uri: streamUri }}
-              shouldPlay
-              isLooping
-              resizeMode={ResizeMode.COVER}
-              onError={(error) => console.error(`Video error for bowl ${bowlNumber}:`, error)}
+              source={{ html: generateStreamHtml(streamUri) }}
+              originWhitelist={['*']}
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              scrollEnabled={false}
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+              onError={(event) => console.error(`WebView Error for Bowl ${bowlNumber}:`, event.nativeEvent.description)}
+              onLoad={() => console.log(`WebView for Bowl ${bowlNumber} loaded.`)}
+              // Performance optimizations
+              allowsInlineMediaPlayback={true}
+              mediaPlaybackRequiresUserAction={false}
             />
           ) : (
             <Text style={styles.videoFeedText}>Live Feed Unavailable</Text>
@@ -183,8 +188,9 @@ export default function DashboardScreen() {
         const currentFeederId = querySnapshot.docs[0].id;
         setFeederId(currentFeederId);
         
-        // IMPORTANT: Replace 'YOUR_COMPUTER_IP' with your actual local IP address
-        const relayServerIp = '192.168.1.5';
+        // IMPORTANT: Replace 'YOUR_COMPUTER_IP' with the actual local IP address
+        // of the machine running your relay server.
+        const relayServerIp = '192.168.1.5'; 
         const relayServerPort = 8080;
 
         setStreamUris({
@@ -536,7 +542,7 @@ const styles = StyleSheet.create({
   cardTitleContainer: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, marginRight: 10 },
   cardTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text, flexShrink: 1 },
   onlineIndicator: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#4CAF50' },
-  videoFeedPlaceholder: { height: 180, backgroundColor: '#E0E0E0', borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 12, overflow: 'hidden' },
+  videoFeedPlaceholder: { height: 180, backgroundColor: '#000000', borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 12, overflow: 'hidden' },
   video: {
     ...StyleSheet.absoluteFillObject,
   },
@@ -563,8 +569,8 @@ const styles = StyleSheet.create({
   filterButtonText: { fontWeight: '600', color: COLORS.primary },
   filterButtonTextActive: { color: COLORS.white },
   scheduleItem: { backgroundColor: COLORS.white, borderRadius: 12, padding: 16, marginBottom: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  scheduleTime: { fontSize: 16, fontWeight: '600', color: COLORS.text },
-  scheduleDetails: { fontSize: 16, color: '#555' },
+  scheduleTime: { fontSize: 22, fontWeight: 'bold', color: COLORS.text },
+  scheduleDetails: { fontSize: 16, color: '#555', marginTop: 4 },
   noSchedulesText: { textAlign: 'center', color: '#999', marginTop: 20, fontStyle: 'italic' },
   modalOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'center', alignItems: 'center' },
   menuContainer: { width: '80%', backgroundColor: COLORS.white, borderRadius: 20, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 5, elevation: 8 },
