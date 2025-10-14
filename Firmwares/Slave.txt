@@ -19,8 +19,8 @@
 #define FIREBASE_PROJECT_ID "pawfeeds-v2"
 #define FIREBASE_DATABASE_URL "https://pawfeeds-v2-default-rtdb.asia-southeast1.firebasedatabase.app/"
 #define SERVICE_ACCOUNT_CLIENT_EMAIL "firebase-adminsdk-fbsvc@pawfeeds-v2.iam.gserviceaccount.com"
-#define SERVICE_ACCOUNT_PRIVATE_KEY "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC+Sqt8BKfCEgbp\n/q4XmzzpsKwlsKJesbWN/Sp2PO7nVgPqwEz9YeCy/aI98IjyGY5hujaLLNgB0GYE\nNLvWkAf3T6VQPUa8SB28XU5sT7tfCJu/1F3yYYAVHHpbg2gbGxjgPWVlQ5arww57\nHHREzOUTRTO5k9hRAzzf1kdjBJbboewEEcIQH2uAdn+B9L58SOezjVONpr63+R5V\nWbZ7+B64BFE62Xsjcmk49OmHjKc+2ID80S6EWx6rxM5jGdTsUVtA0RISG5r1qeB/\nDazLCx1jexutuMHTogvAIirHGIMdOCW12USD8b+CRvP7Lsj6CwR91JSVm/b5P1pI\n0MNAgkfrAgMBAAECggEAO5iNHlki5P/aVHxjr5b5u8KOF3u7TmbfkmmAW+l3dNIW\nhfXV5uE5izUuE7H6YcApPGgiXvIbcG4BFT4iue7/3698+aVHOv5m+bBLOFa8OuYq\nSSjMh3WLtJDnrTN5bkvNPaVc1RsW3BJJvbrKmyWEdMWOjodEDxMxhHTKhLNSP9Rq\ncTz85kc4/IsXuAD6fmApysrWiVuS+vcIzFGCjqQDozojsd58KW6XFa8PEZ95bUbE\n/Q8ZAigB88un8+87NpLd/usUk2FWHNJz523AJUA4qQE0N8J6E/7+dJbRJ9Ucg6lk\nkO0fRiLO7c7o6/7bW1iy4Yq+ph5N3+vc2pYzVZIkAQKBgQD0AbH86UoJxroGh/id\n849814dnEGugSQ1C2XCPNpQy19WtyfZvMM5yphfxfxxohJwr+KyQBcfBatGo/ipV\n9cIJUOalKa+q9KzxLsSka41cvu4RsnVjWyVqGS4w/BdYFdTvNkuK3cGiK8qYwBaW\ni50PNrcCQ+7gmMCjkPJ6LDOh6wKBgQDHpRYRXk9ipsOw4KHBxn4rph8G6ooUIvzs\nPie0e+A+pz9grNDC7y0a+k8fA4eq/iJPmu+FvuJW4fahCkt98VuW0EJjcqtBNgCB\nYbOKn9H+V4WaQKCHYyhl/QxGio4qm4z34cEVt/kMGwGHlaX39RILc3kEq2RfTSc7\n2FikgZxyAQKBgQCz61wWpN5W/xXEIxaLQUCYSUQqFs2FTthcZoC82P3Fz6hbkQQJ\nUO+pUhdtltCXsNCHC8ISIHD+iYk3FtKYt7HvtJudRXOmluu+m0GcC0IdFRvuKKyu\nKlMYPKD2tatw5AgyqtJg/sr8jVXB9EGzmBajVTD0lqrZKUlCUmq480bPKQKBgQCp\nTo0qaYp1JOur4rQK+uQg7B4/5UL31LwdNJDDdJI1T+xldekMh3z+9euHZ5z0G9TJ\nIaGjEMAt4i8fXvWqdravbSn/4EzvXnaLQmnaU7LoORzqNYhtiF/ILhLs96+c3pFr\n3h2652vjIjvn2bcIUuLcpy6oERlr4Kg3DkAOMoSUAQKBgQCkTg6e4Ndg1d2SySFQ\n4h7YHQZ3larxK/03DFoElNIf/6zgiNL13+9nM3l4K8YAEG1OEcn5JaBdktmGrEWR\nA+zV7Qp/hZSVuOM4sxpGa7q94A5253tvLvegIvzhFYW4WQrVFadI5xZ1HaO2Ad9I\nKzz19+jbd085r+kyTM5X0UVzZA==\n-----END PRIVATE KEY-----\n"
-  
+#define SERVICE_ACCOUNT_PRIVATE_KEY "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC+Sqt8BKfCEgbp\n/q4XmzzpsKwlsKJesbWN/Sp2PO7nVgPqwEz9YeCy/aI98IjyGY5hujaLLNgB0GYE\nNLvWkAf3T6VQPUa8SB28XU5sT7tfCJu/1F3yYYAVHHpbg2gbGxjgPWVlQ5arww57\nHHREzOUTRTO5k9hRAzzf1kdjBJbboewEEcIQH2uAdn+B9L58SOezjVONpr63+R5V\nWbZ7+B64BFE62Xsjcmk49OmHjKc+2ID80S6EWx6rxM5jGdTsUVtA0RISG5r1qeB/\nDazLCx1jexutuMHTogvAIirHGIMdOCW12USD8b+CRvP7Lsj6CwR91JSVm/b5P1pI\n0MNAgkfrAgMBAAECggEAO5iNHlki5P/aVHxjr5b5u8KOF3u7TmbfkmmAW+l3dNIW\nhfXV5uE5izUuE7H6YcApPGgiXvIbcG4BFT4iue7/3698+aVHOv5m+bBLOFa8OuYq\SSjMh3WLtJDnrTN5bkvNPaVc1RsW3BJJvbrKmyWEdMWOjodEDxMxhHTKhLNSP9Rq\ncTz85kc4/IsXuAD6fmApysrWiVuS+vcIzFGCjqQDozojsd58KW6XFa8PEZ95bUbE\n/Q8ZAigB88un8+87NpLd/usUk2FWHNJz523AJUA4qQE0N8J6E/7+dJbRJ9Ucg6lk\nkO0fRiLO7c7o6/7bW1iy4Yq+ph5N3+vc2pYzVZIkAQKBgQD0AbH86UoJxroGh/id\n849814dnEGugSQ1C2XCPNpQy19WtyfZvMM5yphfxfxxohJwr+KyQBcfBatGo/ipV\n9cIJUOalKa+q9KzxLsSka41cvu4RsnVjWyVqGS4w/BdYFdTvNkuK3cGiK8qYwBaW\ni50PNrcCQ+7gmMCjkPJ6LDOh6wKBgQDHpRYRXk9ipsOw4KHBxn4rph8G6ooUIvzs\nPie0e+A+pz9grNDC7y0a+k8fA4eq/iJPmu+FvuJW4fahCkt98VuW0EJjcqtBNgCB\YbOKn9H+V4WaQKCHYyhl/QxGio4qm4z34cEVt/kMGwGHlaX39RILc3kEq2RfTSc7\n2FikgZxyAQKBgQCz61wWpN5W/xXEIxaLQUCYSUQqFs2FTthcZoC82P3Fz6hbkQQJ\nUO+pUhdtltCXsNCHC8ISIHD+iYk3FtKYt7HvtJudRXOmluu+m0GcC0IdFRvuKKyu\nKlMYPKD2tatw5AgyqtJg/sr8jVXB9EGzmBajVTD0lqrZKUlCUmq480bPKQKBgQCp\nTo0qaYp1JOur4rQK+uQg7B4/5UL31LwdNJDDdJI1T+xldekMh3z+9euHZ5z0G9TJ\nIaGjEMAt4i8fXvWqdravbSn/4EzvXnaLQmnaU7LoORzqNYhtiF/ILhLs96+c3pFr\n3h2652vjIjvn2bcIUuLcpy6oERlr4Kg3DkAOMoSUAQKBgQCkTg6e4Ndg1d2SySFQ\n4h7YHQZ3larxK/03DFoElNIf/6zgiNL13+9nM3l4K8YAEG1OEcn5JaBdktmGrEWR\nA+zV7Qp/hZSVuOM4sxpGa7q94A5253tvLvegIvzhFYW4WQrVFadI5xZ1HaO2Ad9I\nKzz19+jbd085r+kyTM5X0UVzZA==\n-----END PRIVATE KEY-----\n"
+
 // --- Camera Pin Definition for AI-THINKER MODEL ---
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
@@ -46,23 +46,22 @@ FirebaseAuth auth;
 FirebaseConfig config;
 String feederId = "";
 bool streamActive = false;
+
 // --- State Machine ---
 enum DeviceState { PROVISIONING, CONNECTING_WIFI, AWAITING_FEEDER_ID, AUTHENTICATING_FIREBASE, OPERATIONAL, ERROR };
 DeviceState currentState = PROVISIONING;
+
 #if BOWL_NUMBER == 1
-  // For Bowl 1, use UART2 to match Master's Serial2.
   HardwareSerial SerialSlave(2);
-  const int RX_PIN = 12; // Connect to Master's TX (GPIO 13)
-  const int TX_PIN = 13; // Connect to Master's RX (GPIO 12)
+  const int RX_PIN = 12;
+  const int TX_PIN = 13;
 #elif BOWL_NUMBER == 2
-  // For Bowl 2, use UART1 to match Master's Serial1.
   HardwareSerial SerialSlave(1);
-  const int RX_PIN = 14; // Connect to Master's TX (GPIO 15)
-  const int TX_PIN = 15; // Connect to Master's RX (GPIO 14)
+  const int RX_PIN = 14;
+  const int TX_PIN = 15;
 #else
   #error "BOWL_NUMBER must be 1 or 2"
 #endif
-
 
 // --- Function Prototypes ---
 void listenForCredentials();
@@ -75,27 +74,27 @@ void streamTimeoutCallback(bool timeout);
 void tokenStatusCallback(TokenInfo info);
 void listenForFeederId();
 esp_err_t stream_handler(httpd_req_t *req);
+void camera_server_task(void *pvParameters); // Task for running camera on a dedicated core
 
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); 
-  Serial.begin(115200); // For Debugging
-  Serial.println("\n[PawFeeds CAM] Booting...");
-
+  Serial.begin(115200);
+  Serial.println("\n[PawFeeds CAM] Booting (Optimized Firmware)...");
   SerialSlave.begin(9600, SERIAL_8N1, RX_PIN, TX_PIN);
 
   preferences.begin("pawfeeds-cam", true);
   String ssid = preferences.getString("ssid", "");
   feederId = preferences.getString("feederId", "");
   preferences.end();
+
   if (ssid.length() == 0) {
     currentState = PROVISIONING;
-  } else if (feederId.length() == 0) {
-    currentState = CONNECTING_WIFI;
   } else {
     currentState = CONNECTING_WIFI;
   }
 }
 
+// The main loop runs implicitly on Core 0, handling Firebase and general logic.
 void loop() {
   switch(currentState) {
     case PROVISIONING:
@@ -132,7 +131,7 @@ void listenForCredentials() {
   while (currentState == PROVISIONING) {
     if (SerialSlave.available() > 0) {
       String packet = SerialSlave.readStringUntil('\n');
-      if (packet.indexOf("FEEDER_ID") != -1) continue; // Ignore feeder ID packets for now
+      if (packet.indexOf("FEEDER_ID") != -1) continue;
       
       int separator = packet.indexOf('|');
       if (separator > 0) {
@@ -148,8 +147,6 @@ void listenForCredentials() {
         preferences.end();
 
         SerialSlave.println("OK");
-        // Acknowledge receipt
-
         Serial.println("[PROVISIONING] Saved. Rebooting to connect...");
         delay(1000);
         ESP.restart();
@@ -175,8 +172,6 @@ void listenForFeederId() {
         feederId = receivedId;
 
         SerialSlave.println("OK");
-        // Acknowledge receipt
-        
         Serial.println("[PROVISIONING] Feeder ID saved. Proceeding to Firebase Auth.");
         currentState = AUTHENTICATING_FIREBASE;
       }
@@ -205,8 +200,19 @@ void connectToWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.print("\n[Wi-Fi] Connected! IP Address: ");
     Serial.println(WiFi.localIP());
-    startCameraServer();
-    // Start camera stream in parallel
+
+    // +++ THE FIX: Create a dedicated task for the camera server on Core 1. +++
+    // This isolates the high-throughput video stream from the Wi-Fi/Firebase logic on Core 0.
+    Serial.println("[SYSTEM] Creating camera server task on Core 1.");
+    xTaskCreatePinnedToCore(
+      camera_server_task, // Function to implement the task
+      "CameraServer",     // Name of the task
+      10000,              // Stack size in words
+      NULL,               // Task input parameter
+      2,                  // Priority of the task (higher is more important)
+      NULL,               // Task handle
+      1                   // Core where the task should run (0 or 1)
+    );
 
     if (feederId.length() == 0) {
       currentState = AWAITING_FEEDER_ID;
@@ -256,7 +262,7 @@ void startRTDBStream() {
     if (feederId.length() == 0 || !Firebase.ready()) return;
     String fullStreamPath = "/commands/";
     fullStreamPath.concat(feederId);
-    Serial.print("[STREAM] Starting stream on path: ");
+    Serial.print("[STREAM] Starting RTDB stream on path: ");
     Serial.println(fullStreamPath);
 
     if (!Firebase.RTDB.beginStream(&stream_fbdo, fullStreamPath.c_str())) {
@@ -280,7 +286,6 @@ void streamCallback(FirebaseStream data) {
 
         if (command == "reset_device") {
             Serial.println("[SYSTEM] Reset command received. Clearing ALL credentials and restarting.");
-            // Delete the command from the database before restarting
             String fullStreamPath = "/commands/";
             fullStreamPath.concat(feederId);
             Firebase.RTDB.deleteNode(&stream_fbdo, fullStreamPath.c_str());
@@ -301,11 +306,12 @@ void streamTimeoutCallback(bool timeout) {
   }
 }
 
-// +++ FIX: Corrected MJPEG streaming handler with detailed logging +++
+// +++ This is the known-good MJPEG streaming handler +++
 #define PART_BOUNDARY "12345678900000000000000000000000"
 static const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
 static const char* _STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
 static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
+static const char* _FIRST_BOUNDARY = "--" PART_BOUNDARY "\r\n";
 
 esp_err_t stream_handler(httpd_req_t *req){
   camera_fb_t * fb = NULL;
@@ -313,60 +319,52 @@ esp_err_t stream_handler(httpd_req_t *req){
   size_t _jpg_buf_len = 0;
   uint8_t * _jpg_buf = NULL;
   char * part_buf[64];
+  bool is_first_frame = true;
 
   Serial.println("[STREAM HANDLER] Client connected.");
-
-  // Set initial response headers for the MJPEG stream
   res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
-  if (res != ESP_OK) {
-    Serial.printf("[STREAM HANDLER] ERROR: Failed to set response type with code %d\n", res);
-    return res;
-  }
+  if (res != ESP_OK) { return res; }
   
-  // Add headers to prevent caching
   httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
-  httpd_resp_set_hdr(req, "Pragma", "no-cache");
-  httpd_resp_set_hdr(req, "Expires", "0");
 
   while (true) {
     fb = esp_camera_fb_get();
     if (!fb) {
       Serial.println("[STREAM HANDLER] ERROR: Camera frame capture failed.");
       res = ESP_FAIL;
-      break; // Exit loop immediately on failure
+      break;
     }
     
     _jpg_buf_len = fb->len;
     _jpg_buf = fb->buf;
     
     Serial.printf("[STREAM HANDLER] Frame captured. Size: %zu bytes\n", _jpg_buf_len);
-
-    // Send the boundary string
-    if (res == ESP_OK) {
+    
+    if(is_first_frame){
+      res = httpd_resp_send_chunk(req, _FIRST_BOUNDARY, strlen(_FIRST_BOUNDARY));
+      is_first_frame = false;
+    } else {
       res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
     }
-    // Send the part headers
+    
     if (res == ESP_OK) {
       size_t hlen = snprintf((char *)part_buf, 64, _STREAM_PART, _jpg_buf_len);
       res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
     }
-    // Send the JPEG image data
+
     if (res == ESP_OK) {
       res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
     }
     
-    // Return the frame buffer to be reused
     esp_camera_fb_return(fb);
-
-    // If any of the send operations failed, break the loop
+    
     if (res != ESP_OK) {
-      Serial.printf("[STREAM HANDLER] ERROR: Send chunk failed with code %d. Breaking loop.\n", res);
+      Serial.printf("[STREAM HANDLER] ERROR: Send chunk failed. Breaking loop.\n");
       break;
     }
   }
 
-  Serial.println("[STREAM HANDLER] Client disconnected or error occurred. Ending stream response.");
-  httpd_resp_send_chunk(req, NULL, 0); // Finalize the response
+  Serial.println("[STREAM HANDLER] Client disconnected.");
   return res;
 }
 
@@ -391,7 +389,7 @@ void startCameraServer(){
   config.pin_pwdn = PWDN_GPIO_NUM;
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
-  config.pixel_format = PIXFORMAT_JPEG; 
+  config.pixel_format = PIXFORMAT_JPEG;
   config.frame_size = FRAMESIZE_VGA;
   config.jpeg_quality = 12;
   config.fb_count = 2;
@@ -404,6 +402,7 @@ void startCameraServer(){
 
   httpd_handle_t stream_httpd = NULL;
   httpd_config_t server_config = HTTPD_DEFAULT_CONFIG();
+  server_config.stack_size = 8192;
 
   httpd_uri_t stream_uri = {
       .uri       = "/stream",
@@ -411,11 +410,19 @@ void startCameraServer(){
       .handler   = stream_handler,
       .user_ctx  = NULL
   };
-  
+
   if (httpd_start(&stream_httpd, &server_config) == ESP_OK) {
       httpd_register_uri_handler(stream_httpd, &stream_uri);
+      Serial.print("[STREAM] Camera stream server started on Core 1 at http://");
+      Serial.print(WiFi.localIP());
+      Serial.println("/stream");
   }
-    Serial.print("[STREAM] Camera stream server started at http://");
-    Serial.print(WiFi.localIP());
-    Serial.println("/stream");
+}
+
+// +++ This entire task runs on Core 1 +++
+void camera_server_task(void *pvParameters) {
+  Serial.println("[SYSTEM] Camera task started.");
+  startCameraServer();
+  // This task should not return. If it does, delete it.
+  vTaskDelete(NULL);
 }
