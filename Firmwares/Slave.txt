@@ -12,15 +12,15 @@
 // ==========================================================
 // IMPORTANT: CONFIGURE THIS FOR EACH CAMERA BEFORE UPLOADING
 // ==========================================================
-#define BOWL_NUMBER 2 // Use 1 for the first camera, 2 for the second
+#define BOWL_NUMBER 1 // Use 1 for the first camera, 2 for the second
 // ==========================================================
 
 // --- FIREBASE CONFIGURATION (copy from master) ---
 #define FIREBASE_PROJECT_ID "pawfeeds-v2"
-#define FIREBASE_DATABASE_URL "https://pawfeeds-v2-default-rtdb.asia-southeast1.firebasedata.app/"
+#define FIREBASE_DATABASE_URL "https://pawfeeds-v2-default-rtdb.asia-southeast1.firebasedatabase.app/"
 #define SERVICE_ACCOUNT_CLIENT_EMAIL "firebase-adminsdk-fbsvc@pawfeeds-v2.iam.gserviceaccount.com"
-#define SERVICE_ACCOUNT_PRIVATE_KEY "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC+Sqt8BKfCEgbp\n/q4XmzzpsKwlsKJesbWN/Sp2PO7nVgPqwEz9YeCy/aI98IjyGY5hujaLLNgB0GYE\nNLvWkAf3T6VQPUa8SB28XU5sT7tfCJu/1F3yYYAVHHpbg2gbGxjgPWVlQ5arww57\nHHREzOUTRTO5k9hRAzzf1kdjBJbboewEEcIQH2uAdn+B9L58SOezjVONpr63+R5V\nWbZ7+B64BFE62Xsjcmk49OmHjKc+2ID80S6EWx6rxM5jGdTsUVtA0RISG5r1qeB/\nDazLCx1jexutuMHTogvAIirHGIMdOCW12USD8b+CRvP7Lsj6CwR91JSVm/b5P1pI\n0MNAgkfrAgMBAAECggEAO5iNHlki5P/aVHxjr5b5u8KOF3u7TmbfkmmAW+l3dNIW\nhfXV5uE5izUuE7H6YcApPGgiXvIbcG4BFT4iue7/3698+aVHOv5m+bBLOFa8OuYq\SSjMh3WLtJDnrTN5bkvNPaVc1RsW3BJJvbrKmyWEdMWOjodEDxMxhHTKhLNSP9Rq\ncTz85kc4/IsXuAD6fmApysrWiVuS+vcIzFGCjqQDozojsd58KW6XFa8PEZ95bUbE\n/Q8ZAigB88un8+87NpLd/usUk2FWHNJz523AJUA4qQE0N8J6E/7+dJbRJ9Ucg6lk\nkO0fRiLO7c7o6/7bWiy4Yq+ph5N3+vc2pYzVZIkAQKBgQD0AbH86UoJxroGh/id\n849814dnEGugSQ1C2XCPNpQy19WtyfZvMM5yphfxfxxohJwr+KyQBcfBatGo/ipV\n9cIJUOalKa+q9KzxLsSka41cvu4RsnVjWyVqGS4w/BdYFdTvNkuK3cGiK8qYwBaW\ni50PNrcCQ+7gmMCjkPJ6LDOh6wKBgQDHpRYRXk9ipsOw4KHBxn4rph8G6ooUIvzs\nPie0e+A+pz9grNDC7y0a+k8fA4eq/iJPmu+FvuJW4fahCkt98VuW0EJjcqtBNgCB\YbOKn9H+V4WaQKCHYyhl/QxGio4qm4z34cEVt/kMGwGHlaX39RILc3kEq2RfTSc7\n2FikgZxyAQKBgQCz61wWpN5W/xXEIxaLQUCYSUQqFs2FTthcZoC82P3Fz6hbkQQJ\nUO+pUhdtltCXsNCHC8ISIHD+iYk3FtKYt7HvtJudRXOmluu+m0GcC0IdFRvuKKyu\nKlMYPKD2tatw5AgyqtJg/sr8jVXB9EGzmBajVTD0lqrZKUlCUmq480bPKQKBgQCp\nTo0qaYp1JOur4rQK+uQg7B4/5UL31LwdNJDDdJI1T+xldekMh3z+9euHZ5z0G9TJ\nIaGjEMAt4i8fXvWqdravbSn/4EzvXnaLQmnaU7LoORzqNYhtiF/ILhLs96+c3pFr\n3h2652vjIjvn2bcIUuLcpy6oERlr4Kg3DkAOMoSUAQKBgQCkTg6e4Ndg1d2SySFQ\n4h7YHQZ3larxK/03DFoElNIf/6zgiNL13+9nM3l4K8YAEG1OEcn5JaBdktmGrEWR\nA+zV7Qp/hZSVuOM4sxpGa7q94A5253tvLvegIvzhFYW4WQrVFadI5xZ1HaO2Ad9I\nKzz19+jbd085r+kyTM5X0UVzZA==\n-----END PRIVATE KEY-----\n"
-
+#define SERVICE_ACCOUNT_PRIVATE_KEY "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC+Sqt8BKfCEgbp\n/q4XmzzpsKwlsKJesbWN/Sp2PO7nVgPqwEz9YeCy/aI98IjyGY5hujaLLNgB0GYE\nNLvWkAf3T6VQPUa8SB28XU5sT7tfCJu/1F3yYYAVHHpbg2gbGxjgPWVlQ5arww57\nHHREzOUTRTO5k9hRAzzf1kdjBJbboewEEcIQH2uAdn+B9L58SOezjVONpr63+R5V\nWbZ7+B64BFE62Xsjcmk49OmHjKc+2ID80S6EWx6rxM5jGdTsUVtA0RISG5r1qeB/\nDazLCx1jexutuMHTogvAIirHGIMdOCW12USD8b+CRvP7Lsj6CwR91JSVm/b5P1pI\n0MNAgkfrAgMBAAECggEAO5iNHlki5P/aVHxjr5b5u8KOF3u7TmbfkmmAW+l3dNIW\nhfXV5uE5izUuE7H6YcApPGgiXvIbcG4BFT4iue7/3698+aVHOv5m+bBLOFa8OuYq\nSSjMh3WLtJDnrTN5bkvNPaVc1RsW3BJJvbrKmyWEdMWOjodEDxMxhHTKhLNSP9Rq\ncTz85kc4/IsXuAD6fmApysrWiVuS+vcIzFGCjqQDozojsd58KW6XFa8PEZ95bUbE\n/Q8ZAigB88un8+87NpLd/usUk2FWHNJz523AJUA4qQE0N8J6E/7+dJbRJ9Ucg6lk\nkO0fRiLO7c7o6/7bW1iy4Yq+ph5N3+vc2pYzVZIkAQKBgQD0AbH86UoJxroGh/id\n849814dnEGugSQ1C2XCPNpQy19WtyfZvMM5yphfxfxxohJwr+KyQBcfBatGo/ipV\n9cIJUOalKa+q9KzxLsSka41cvu4RsnVjWyVqGS4w/BdYFdTvNkuK3cGiK8qYwBaW\ni50PNrcCQ+7gmMCjkPJ6LDOh6wKBgQDHpRYRXk9ipsOw4KHBxn4rph8G6ooUIvzs\nPie0e+A+pz9grNDC7y0a+k8fA4eq/iJPmu+FvuJW4fahCkt98VuW0EJjcqtBNgCB\nYbOKn9H+V4WaQKCHYyhl/QxGio4qm4z34cEVt/kMGwGHlaX39RILc3kEq2RfTSc7\n2FikgZxyAQKBgQCz61wWpN5W/xXEIxaLQUCYSUQqFs2FTthcZoC82P3Fz6hbkQQJ\nUO+pUhdtltCXsNCHC8ISIHD+iYk3FtKYt7HvtJudRXOmluu+m0GcC0IdFRvuKKyu\nKlMYPKD2tatw5AgyqtJg/sr8jVXB9EGzmBajVTD0lqrZKUlCUmq480bPKQKBgQCp\nTo0qaYp1JOur4rQK+uQg7B4/5UL31LwdNJDDdJI1T+xldekMh3z+9euHZ5z0G9TJ\nIaGjEMAt4i8fXvWqdravbSn/4EzvXnaLQmnaU7LoORzqNYhtiF/ILhLs96+c3pFr\n3h2652vjIjvn2bcIUuLcpy6oERlr4Kg3DkAOMoSUAQKBgQCkTg6e4Ndg1d2SySFQ\n4h7YHQZ3larxK/03DFoElNIf/6zgiNL13+9nM3l4K8YAEG1OEcn5JaBdktmGrEWR\nA+zV7Qp/hZSVuOM4sxpGa7q94A5253tvLvegIvzhFYW4WQrVFadI5xZ1HaO2Ad9I\nKzz19+jbd085r+kyTM5X0UVzZA==\n-----END PRIVATE KEY-----\n"
+  
 // --- Camera Pin Definition for AI-THINKER MODEL ---
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
@@ -46,11 +46,11 @@ FirebaseAuth auth;
 FirebaseConfig config;
 String feederId = "";
 bool streamActive = false;
+
 // --- State Machine ---
 enum DeviceState { PROVISIONING, CONNECTING_WIFI, AWAITING_FEEDER_ID, AUTHENTICATING_FIREBASE, OPERATIONAL, ERROR };
 DeviceState currentState = PROVISIONING;
 
-// +++ FIX: Aligned Serial ports to match Master controller +++
 #if BOWL_NUMBER == 1
   // For Bowl 1, use UART2 to match Master's Serial2.
   HardwareSerial SerialSlave(2);
@@ -81,7 +81,7 @@ void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); 
   Serial.begin(115200); // For Debugging
   Serial.println("\n[PawFeeds CAM] Booting...");
-  // Initialize the dedicated serial port for master communication
+
   SerialSlave.begin(9600, SERIAL_8N1, RX_PIN, TX_PIN);
 
   preferences.begin("pawfeeds-cam", true);
@@ -279,6 +279,12 @@ void streamCallback(FirebaseStream data) {
 
         if (command == "reset_device") {
             Serial.println("[SYSTEM] Reset command received. Clearing ALL credentials and restarting.");
+            
+            // Delete the command from the database before restarting
+            String fullStreamPath = "/commands/";
+            fullStreamPath.concat(feederId);
+            Firebase.RTDB.deleteNode(&stream_fbdo, fullStreamPath.c_str());
+
             preferences.begin("pawfeeds-cam", false);
             preferences.clear();
             preferences.end();
@@ -360,8 +366,10 @@ void startCameraServer(){
             size_t hlen = snprintf((char *)part_buf, 64, "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n", _jpg_buf_len);
             res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
           }
-          if(res == ESP_OK){ res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len); }
-          if(res == ESP_OK){ res = httpd_resp_send_chunk(req, "\r\n--FRAME\r\n", 11); }
+          if(res == ESP_OK){ res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
+          }
+          if(res == ESP_OK){ res = httpd_resp_send_chunk(req, "\r\n--FRAME\r\n", 11);
+          }
           if(fb){
             esp_camera_fb_return(fb);
             fb = NULL;
@@ -370,12 +378,14 @@ void startCameraServer(){
             free(_jpg_buf);
             _jpg_buf = NULL;
           }
-          if(res != ESP_OK){ break; }
+          if(res != ESP_OK){ break;
+          }
         }
         return res;
       },
       .user_ctx  = NULL
   };
+
   if (httpd_start(&stream_httpd, &server_config) == ESP_OK) {
       httpd_register_uri_handler(stream_httpd, &stream_uri);
   }

@@ -11,7 +11,7 @@
 #define FIREBASE_DATABASE_URL "https://pawfeeds-v2-default-rtdb.asia-southeast1.firebasedatabase.app/"
 #define SERVICE_ACCOUNT_CLIENT_EMAIL "firebase-adminsdk-fbsvc@pawfeeds-v2.iam.gserviceaccount.com"
 #define SERVICE_ACCOUNT_PRIVATE_KEY "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC+Sqt8BKfCEgbp\n/q4XmzzpsKwlsKJesbWN/Sp2PO7nVgPqwEz9YeCy/aI98IjyGY5hujaLLNgB0GYE\nNLvWkAf3T6VQPUa8SB28XU5sT7tfCJu/1F3yYYAVHHpbg2gbGxjgPWVlQ5arww57\nHHREzOUTRTO5k9hRAzzf1kdjBJbboewEEcIQH2uAdn+B9L58SOezjVONpr63+R5V\nWbZ7+B64BFE62Xsjcmk49OmHjKc+2ID80S6EWx6rxM5jGdTsUVtA0RISG5r1qeB/\nDazLCx1jexutuMHTogvAIirHGIMdOCW12USD8b+CRvP7Lsj6CwR91JSVm/b5P1pI\n0MNAgkfrAgMBAAECggEAO5iNHlki5P/aVHxjr5b5u8KOF3u7TmbfkmmAW+l3dNIW\nhfXV5uE5izUuE7H6YcApPGgiXvIbcG4BFT4iue7/3698+aVHOv5m+bBLOFa8OuYq\nSSjMh3WLtJDnrTN5bkvNPaVc1RsW3BJJvbrKmyWEdMWOjodEDxMxhHTKhLNSP9Rq\ncTz85kc4/IsXuAD6fmApysrWiVuS+vcIzFGCjqQDozojsd58KW6XFa8PEZ95bUbE\n/Q8ZAigB88un8+87NpLd/usUk2FWHNJz523AJUA4qQE0N8J6E/7+dJbRJ9Ucg6lk\nkO0fRiLO7c7o6/7bW1iy4Yq+ph5N3+vc2pYzVZIkAQKBgQD0AbH86UoJxroGh/id\n849814dnEGugSQ1C2XCPNpQy19WtyfZvMM5yphfxfxxohJwr+KyQBcfBatGo/ipV\n9cIJUOalKa+q9KzxLsSka41cvu4RsnVjWyVqGS4w/BdYFdTvNkuK3cGiK8qYwBaW\ni50PNrcCQ+7gmMCjkPJ6LDOh6wKBgQDHpRYRXk9ipsOw4KHBxn4rph8G6ooUIvzs\nPie0e+A+pz9grNDC7y0a+k8fA4eq/iJPmu+FvuJW4fahCkt98VuW0EJjcqtBNgCB\nYbOKn9H+V4WaQKCHYyhl/QxGio4qm4z34cEVt/kMGwGHlaX39RILc3kEq2RfTSc7\n2FikgZxyAQKBgQCz61wWpN5W/xXEIxaLQUCYSUQqFs2FTthcZoC82P3Fz6hbkQQJ\nUO+pUhdtltCXsNCHC8ISIHD+iYk3FtKYt7HvtJudRXOmluu+m0GcC0IdFRvuKKyu\nKlMYPKD2tatw5AgyqtJg/sr8jVXB9EGzmBajVTD0lqrZKUlCUmq480bPKQKBgQCp\nTo0qaYp1JOur4rQK+uQg7B4/5UL31LwdNJDDdJI1T+xldekMh3z+9euHZ5z0G9TJ\nIaGjEMAt4i8fXvWqdravbSn/4EzvXnaLQmnaU7LoORzqNYhtiF/ILhLs96+c3pFr\n3h2652vjIjvn2bcIUuLcpy6oERlr4Kg3DkAOMoSUAQKBgQCkTg6e4Ndg1d2SySFQ\n4h7YHQZ3larxK/03DFoElNIf/6zgiNL13+9nM3l4K8YAEG1OEcn5JaBdktmGrEWR\nA+zV7Qp/hZSVuOM4sxpGa7q94A5253tvLvegIvzhFYW4WQrVFadI5xZ1HaO2Ad9I\nKzz19+jbd085r+kyTM5X0UVzZA==\n-----END PRIVATE KEY-----\n"
-// --- Hardware & Provisioning Definitions ---
+  
 #define SERVO_BOWL_1_PIN 21
 #define SERVO_BOWL_2_PIN 22
 #define HX711_BOWL_1_DOUT_PIN 27
@@ -70,7 +70,6 @@ void forwardSlaveLogs();
 bool sendToSlave(HardwareSerial& serial, const String& packet);
 void forwardPacketToSlaves(const String& packet, const String& packetType);
 
-
 void forwardPacketToSlaves(const String& packet, const String& packetType) {
     Serial.printf("[PROVISIONING] Forwarding %s to slave cameras...\n", packetType.c_str());
 
@@ -104,7 +103,6 @@ void setup() {
   servoBowl1.attach(SERVO_BOWL_1_PIN);
   servoBowl2.attach(SERVO_BOWL_2_PIN);
   loadCellBowl1.begin(HX711_BOWL_1_DOUT_PIN, HX711_BOWN_1_SCK_PIN);
-
   preferences.begin("pawfeeds", false);
   if (preferences.getString("ssid", "").length() > 0) {
     currentState = CONNECTING_WIFI;
@@ -307,7 +305,6 @@ void handleClient() {
             String pass = urlDecode(body.substring(pass_start, pass_end));
             int uid_start = body.indexOf("uid=") + 4;
             String uid = urlDecode(body.substring(uid_start));
-            
             preferences.putString("ssid", ssid);
             preferences.putString("pass", pass);
             preferences.putString("owner_uid", uid);
@@ -392,14 +389,14 @@ void dispenseFood(int bowlNumber, int amount) {
     Servo* targetServo = nullptr;
     if (bowlNumber == 1) targetServo = &servoBowl1;
     else if (bowlNumber == 2) targetServo = &servoBowl2;
-
     if (targetServo != nullptr) {
         long dispenseDuration = amount * DISPENSE_MS_PER_GRAM;
         Serial.printf("[SERVO] Rotating for %ld ms.\n", dispenseDuration);
 
         targetServo->write(0); // Start dispensing
         delay(dispenseDuration);
-        targetServo->write(90); // Stop dispensing
+        targetServo->write(90);
+        // Stop dispensing
     }
 }
 
@@ -435,7 +432,6 @@ void streamCallback(FirebaseStream data) {
             if (json.get(result, "timestamp")) newTimestamp = result.to<unsigned long>();
             if (json.get(result, "bowl")) bowl = result.to<int>();
             if (json.get(result, "amount")) amount = result.to<int>();
-
             if (newTimestamp > 0 && newTimestamp > lastCmdTimestamp) {
                 lastCmdTimestamp = newTimestamp;
                 pendingCommand = {bowl, amount};
