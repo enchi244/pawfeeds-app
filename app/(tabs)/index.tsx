@@ -20,7 +20,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-// Import WebView
 import { WebView } from 'react-native-webview';
 import { useAuth } from '../../context/AuthContext';
 import { auth, db } from '../../firebaseConfig';
@@ -65,25 +64,22 @@ interface BowlCardProps {
   streamUri: string | null;
 }
 
+const createWebViewHtml = (streamUrl: string) => `
+  <html>
+    <head>
+      <style>
+        body { margin: 0; padding: 0; background-color: #000; overflow: hidden; }
+        img { width: 100%; height: 100%; object-fit: cover; }
+      </style>
+    </head>
+    <body>
+      <img src="${streamUrl}" />
+    </body>
+  </html>
+`;
+
 const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel, perMealPortion, onPressFeed, onPressFilter, streamUri }) => {
     const isUnassigned = !selectedPet;
-
-    // +++ FIX: This HTML provides a styled wrapper for the stream inside the WebView +++
-    const generateStreamHtml = (uri: string) => `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-          <style>
-            body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background-color: #000; }
-            img { width: 100%; height: 100%; object-fit: contain; }
-          </style>
-        </head>
-        <body>
-          <img src="${uri}" />
-        </body>
-      </html>
-    `;
     
     return (
       <View style={[styles.card, { width: CARD_WIDTH }]}>
@@ -96,21 +92,18 @@ const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel,
         </View>
         <View style={styles.videoFeedPlaceholder}>
           {streamUri ? (
-            // +++ FIX: More robust WebView configuration for live streaming +++
             <WebView
               style={styles.video}
-              source={{ html: generateStreamHtml(streamUri) }}
               originWhitelist={['*']}
-              javaScriptEnabled={true}
-              domStorageEnabled={true}
+              source={{ html: createWebViewHtml(streamUri) }}
               scrollEnabled={false}
-              showsHorizontalScrollIndicator={false}
-              showsVerticalScrollIndicator={false}
-              onError={(event) => console.error(`WebView Error for Bowl ${bowlNumber}:`, event.nativeEvent.description)}
-              onLoad={() => console.log(`WebView for Bowl ${bowlNumber} loaded.`)}
-              // Performance optimizations
-              allowsInlineMediaPlayback={true}
+              // +++ FIX: Add props to disable caching and ensure playback +++
+              cacheEnabled={false}
+              cacheMode={'LOAD_NO_CACHE'}
+              incognito={true}
               mediaPlaybackRequiresUserAction={false}
+              onError={(event) => console.error(`[WebView Bowl ${bowlNumber}] Error: ${event.nativeEvent.description}`)}
+              onLoad={() => console.log(`[WebView Bowl ${bowlNumber}] HTML loaded.`)}
             />
           ) : (
             <Text style={styles.videoFeedText}>Live Feed Unavailable</Text>
