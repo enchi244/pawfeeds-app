@@ -62,34 +62,35 @@ interface BowlCardProps {
   onPressFeed: () => void;
   onPressFilter: () => void;
   streamUri: string | null;
-  isActive: boolean; // New prop to control video playback
+  isActive: boolean;
 }
 
 const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel, perMealPortion, onPressFeed, onPressFilter, streamUri, isActive }) => {
     const isUnassigned = !selectedPet;
     const videoRef = useRef<Video>(null);
-    const [isBuffering, setIsBuffering] = useState(true);
+    const [showBuffering, setShowBuffering] = useState(true);
 
     useEffect(() => {
-        // This effect manages the playback state based on whether the card is active
         const managePlayback = async () => {
             if (videoRef.current) {
                 try {
                     await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
                     if (isActive && streamUri) {
+                        setShowBuffering(true); // Show spinner when we start loading a new stream
+                        console.log(`[Video Player Bowl ${bowlNumber}] Attempting to load URI: ${streamUri}`);
                         await videoRef.current.loadAsync({ uri: streamUri }, { shouldPlay: true });
                     } else {
                         await videoRef.current.unloadAsync();
                     }
                 } catch (error) {
                     console.error(`[Video Player Bowl ${bowlNumber}] Error managing playback:`, error);
+                    setShowBuffering(false);
                 }
             }
         };
 
         managePlayback();
 
-        // Cleanup function to unload video when component unmounts or becomes inactive
         return () => {
             if (videoRef.current) {
                 videoRef.current.unloadAsync();
@@ -98,16 +99,17 @@ const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel,
     }, [isActive, streamUri, bowlNumber]);
 
     const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
-        // Correctly handle the two possible states of AVPlaybackStatus
         if (!status.isLoaded) {
-            // This is AVPlaybackStatusError. It has an error property.
             if (status.error) {
                 console.error(`[Video Player Bowl ${bowlNumber}] Playback Error:`, status.error);
             }
-            setIsBuffering(false); // If it fails to load, it's definitely not buffering.
+            setShowBuffering(false);
         } else {
-            // This is AVPlaybackStatusSuccess. It has an isBuffering property.
-            setIsBuffering(status.isBuffering);
+            // ** THE FIX **
+            // We only show the buffering indicator if the video is buffering AND not playing.
+            // Once it starts playing, we hide the indicator, even if it buffers in the background.
+            const isActuallyBuffering = status.isBuffering && !status.isPlaying;
+            setShowBuffering(isActuallyBuffering);
         }
     };
 
@@ -128,12 +130,12 @@ const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel,
                 style={styles.video}
                 source={{ uri: streamUri }}
                 resizeMode={ResizeMode.COVER}
-                shouldPlay={false} // We control playback via the useEffect
+                shouldPlay={false} // Controlled by useEffect
                 isLooping
                 isMuted
                 onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
               />
-              {isBuffering && isActive && (
+              {showBuffering && isActive && (
                 <View style={styles.videoOverlay}>
                   <ActivityIndicator color={COLORS.white} />
                   <Text style={styles.videoOverlayText}>Connecting...</Text>
@@ -162,7 +164,7 @@ const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel,
         </Text>
       </View>
     );
-  };
+};
 
 const formatScheduleTime = (timeString: string): string => {
     if (!timeString) return 'Invalid Time';
@@ -182,7 +184,7 @@ export default function DashboardScreen() {
   const { user } = useAuth();
   const [activeIndex, setActiveIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [filters, setFilters] = useState({ bowl1: true, bowl2: true });
 
@@ -193,10 +195,10 @@ export default function DashboardScreen() {
   const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
   const [selectedBowlForAction, setSelectedBowlForAction] = useState<number | null>(null);
   const [customAmount, setCustomAmount] = useState('');
-  
+
   const [isCustomFeedVisible, setIsCustomFeedVisible] = useState(false);
   const [selectedPetInBowl, setSelectedPetInBowl] = useState<{[bowlId: string]: string | undefined}>({});
-  
+
   const [feederId, setFeederId] = useState<string | null>(null);
   const [streamUris, setStreamUris] = useState<{ [bowlId: string]: string | null }>({});
 
@@ -218,21 +220,25 @@ export default function DashboardScreen() {
       if (!querySnapshot.empty) {
         const currentFeederId = querySnapshot.docs[0].id;
         setFeederId(currentFeederId);
-        
-        // IMPORTANT: Replace 'YOUR_COMPUTER_IP' with the actual local IP address
-        // of the machine running your relay server.
-        const relayServerIp = '192.168.1.5'; 
-        const relayServerPort = 8080;
 
-        // The new HLS stream URLs
+        const relayServerIp = '192.168.1.5';
+        const relayServerPort = 8080;
+        const baseStreamUrl = `http://${relayServerIp}:${relayServerPort}`;
+
         setStreamUris({
-          '1': `http://${relayServerIp}:${relayServerPort}/1/index.m3u8`, 
-          '2': `http://${relayServerIp}:${relayServerPort}/2/index.m3u8`, 
+          '1': `${baseStreamUrl}/1/index.m3u8`,
+          '2': `${baseStreamUrl}/2/index.m3u8`,
         });
 
-        // Tell the server to start transcoding the streams
-        fetch(`http://${relayServerIp}:${relayServerPort}/stream/1`);
-        fetch(`http://${relayServerIp}:${relayServerPort}/stream/2`);
+        for (const bowl of bowlsConfig) {
+          const url = `${baseStreamUrl}/stream/${bowl.id}`;
+          console.log(`[App] Initiating stream for bowl ${bowl.id} at ${url}`);
+          try {
+            fetch(url).catch(err => console.error(`[App] Non-blocking fetch failed for bowl ${bowl.id}:`, err));
+          } catch (error) {
+            console.error(`[App] Error initiating stream for bowl ${bowl.id}:`, error);
+          }
+        }
 
         const petsRef = collection(db, 'feeders', currentFeederId, 'pets');
         const petsUnsub = onSnapshot(petsRef, (snapshot) => {
@@ -276,7 +282,7 @@ export default function DashboardScreen() {
     });
     return bowlMap;
   }, [schedules, pets]);
-  
+
   useEffect(() => {
     const newSelections = { ...selectedPetInBowl };
     let changed = false;
@@ -310,7 +316,7 @@ export default function DashboardScreen() {
     const index = Math.round(event.nativeEvent.contentOffset.x / (CARD_WIDTH + 20));
     setActiveIndex(index);
   };
-  
+
   const handleMenu = () => setIsMenuVisible(true);
   const handleMenuClose = () => setIsMenuVisible(false);
 
@@ -329,7 +335,7 @@ export default function DashboardScreen() {
       }},
     ]);
   };
-  
+
   const handleResetDevice = () => {
     handleMenuClose();
     Alert.alert(
@@ -355,14 +361,10 @@ export default function DashboardScreen() {
 
               const feederDocRef = doc(db, 'feeders', feederId);
               await deleteDoc(feederDocRef);
-              
-              // Note: Deleting user document might not be desired. Re-evaluate this logic.
-              // const userDocRef = doc(db, 'users', user.uid);
-              // await deleteDoc(userDocRef);
 
               await signOut(auth);
               router.replace("/login");
-              
+
               Alert.alert("Success", "Device has been reset and removed from your account.");
 
             } catch (error) {
@@ -383,7 +385,7 @@ export default function DashboardScreen() {
   const toggleFilter = (bowl: 'bowl1' | 'bowl2') => {
     setFilters(prevFilters => ({ ...prevFilters, [bowl]: !prevFilters[bowl] }));
   };
-  
+
   const filteredSchedules = useMemo(() => {
     return schedules.filter(schedule => {
         if (!schedule.isEnabled) return false;
@@ -412,7 +414,7 @@ export default function DashboardScreen() {
       }
       setIsFilterModalVisible(false);
   };
-  
+
   const handleDispenseFeed = async (amount: number) => {
     if (selectedBowlForAction === null || !amount || amount <= 0) {
         Alert.alert('Invalid Amount', 'Please provide a valid portion amount.');
@@ -436,7 +438,7 @@ export default function DashboardScreen() {
       setCustomAmount('');
     }
   };
-  
+
   const feedModalData = useMemo(() => {
     if (selectedBowlForAction === null) return null;
     const petId = selectedPetInBowl[selectedBowlForAction];
@@ -447,7 +449,7 @@ export default function DashboardScreen() {
 
     const activeScheduleCount = activeSchedulesByPetId[pet.id] || 0;
     const perMealPortion = (pet.recommendedPortion && activeScheduleCount > 0) ? Math.round(pet.recommendedPortion / activeScheduleCount) : 0;
-    
+
     return { pet, perMealPortion };
   }, [selectedBowlForAction, selectedPetInBowl, pets, activeSchedulesByPetId]);
 
@@ -482,7 +484,7 @@ export default function DashboardScreen() {
                         onPressFeed={() => handleOpenFeedModal(bowl.id)}
                         onPressFilter={() => handleOpenFilterModal(bowl.id)}
                         streamUri={streamUri}
-                        isActive={index === activeIndex} // Pass isActive prop
+                        isActive={index === activeIndex}
                     />
                 );
             })}
