@@ -1,9 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Audio, AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { getDatabase, ref, serverTimestamp as rtdbServerTimestamp, set } from 'firebase/database';
 import { collection, deleteDoc, doc, getDocs, onSnapshot, query, Unsubscribe, where } from 'firebase/firestore';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,7 +21,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
 import { useAuth } from '../../context/AuthContext';
 import { auth, db } from '../../firebaseConfig';
 
@@ -62,25 +62,55 @@ interface BowlCardProps {
   onPressFeed: () => void;
   onPressFilter: () => void;
   streamUri: string | null;
+  isActive: boolean; // New prop to control video playback
 }
 
-const createWebViewHtml = (streamUrl: string) => `
-  <html>
-    <head>
-      <style>
-        body { margin: 0; padding: 0; background-color: #000; overflow: hidden; }
-        img { width: 100%; height: 100%; object-fit: cover; }
-      </style>
-    </head>
-    <body>
-      <img src="${streamUrl}" />
-    </body>
-  </html>
-`;
-
-const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel, perMealPortion, onPressFeed, onPressFilter, streamUri }) => {
+const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel, perMealPortion, onPressFeed, onPressFilter, streamUri, isActive }) => {
     const isUnassigned = !selectedPet;
-    
+    const videoRef = useRef<Video>(null);
+    const [isBuffering, setIsBuffering] = useState(true);
+
+    useEffect(() => {
+        // This effect manages the playback state based on whether the card is active
+        const managePlayback = async () => {
+            if (videoRef.current) {
+                try {
+                    await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+                    if (isActive && streamUri) {
+                        await videoRef.current.loadAsync({ uri: streamUri }, { shouldPlay: true });
+                    } else {
+                        await videoRef.current.unloadAsync();
+                    }
+                } catch (error) {
+                    console.error(`[Video Player Bowl ${bowlNumber}] Error managing playback:`, error);
+                }
+            }
+        };
+
+        managePlayback();
+
+        // Cleanup function to unload video when component unmounts or becomes inactive
+        return () => {
+            if (videoRef.current) {
+                videoRef.current.unloadAsync();
+            }
+        };
+    }, [isActive, streamUri, bowlNumber]);
+
+    const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
+        // Correctly handle the two possible states of AVPlaybackStatus
+        if (!status.isLoaded) {
+            // This is AVPlaybackStatusError. It has an error property.
+            if (status.error) {
+                console.error(`[Video Player Bowl ${bowlNumber}] Playback Error:`, status.error);
+            }
+            setIsBuffering(false); // If it fails to load, it's definitely not buffering.
+        } else {
+            // This is AVPlaybackStatusSuccess. It has an isBuffering property.
+            setIsBuffering(status.isBuffering);
+        }
+    };
+
     return (
       <View style={[styles.card, { width: CARD_WIDTH }]}>
         <View style={styles.cardHeader}>
@@ -92,21 +122,29 @@ const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel,
         </View>
         <View style={styles.videoFeedPlaceholder}>
           {streamUri ? (
-            <WebView
-              style={styles.video}
-              originWhitelist={['*']}
-              source={{ html: createWebViewHtml(streamUri) }}
-              scrollEnabled={false}
-              // +++ FIX: Add props to disable caching and ensure playback +++
-              cacheEnabled={false}
-              cacheMode={'LOAD_NO_CACHE'}
-              incognito={true}
-              mediaPlaybackRequiresUserAction={false}
-              onError={(event) => console.error(`[WebView Bowl ${bowlNumber}] Error: ${event.nativeEvent.description}`)}
-              onLoad={() => console.log(`[WebView Bowl ${bowlNumber}] HTML loaded.`)}
-            />
+            <>
+              <Video
+                ref={videoRef}
+                style={styles.video}
+                source={{ uri: streamUri }}
+                resizeMode={ResizeMode.COVER}
+                shouldPlay={false} // We control playback via the useEffect
+                isLooping
+                isMuted
+                onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
+              />
+              {isBuffering && isActive && (
+                <View style={styles.videoOverlay}>
+                  <ActivityIndicator color={COLORS.white} />
+                  <Text style={styles.videoOverlayText}>Connecting...</Text>
+                </View>
+              )}
+            </>
           ) : (
-            <Text style={styles.videoFeedText}>Live Feed Unavailable</Text>
+            <View style={styles.videoOverlay}>
+                <MaterialCommunityIcons name="camera-off-outline" size={32} color="#999" />
+                <Text style={styles.videoFeedText}>Live Feed Unavailable</Text>
+            </View>
           )}
         </View>
         <View style={styles.statusContainer}>
@@ -186,10 +224,15 @@ export default function DashboardScreen() {
         const relayServerIp = '192.168.1.5'; 
         const relayServerPort = 8080;
 
+        // The new HLS stream URLs
         setStreamUris({
-          '1': `http://${relayServerIp}:${relayServerPort}/stream/1`, 
-          '2': `http://${relayServerIp}:${relayServerPort}/stream/2`, 
+          '1': `http://${relayServerIp}:${relayServerPort}/1/index.m3u8`, 
+          '2': `http://${relayServerIp}:${relayServerPort}/2/index.m3u8`, 
         });
+
+        // Tell the server to start transcoding the streams
+        fetch(`http://${relayServerIp}:${relayServerPort}/stream/1`);
+        fetch(`http://${relayServerIp}:${relayServerPort}/stream/2`);
 
         const petsRef = collection(db, 'feeders', currentFeederId, 'pets');
         const petsUnsub = onSnapshot(petsRef, (snapshot) => {
@@ -251,7 +294,7 @@ export default function DashboardScreen() {
     if (changed) {
         setSelectedPetInBowl(newSelections);
     }
-  }, [petsByBowl]);
+  }, [petsByBowl, bowlsConfig]);
 
   const activeSchedulesByPetId = useMemo(() => {
     const counts: { [petId: string]: number } = {};
@@ -276,8 +319,13 @@ export default function DashboardScreen() {
     Alert.alert("Logout", "Are you sure you want to log out?", [
       { text: "Cancel", style: "cancel" },
       { text: "Logout", style: "destructive", onPress: async () => {
-        await signOut(auth);
-        router.replace('/login');
+        try {
+            await signOut(auth);
+            router.replace('/login');
+        } catch (error) {
+            console.error("Logout Error:", error);
+            Alert.alert("Logout Failed", "An error occurred while logging out.");
+        }
       }},
     ]);
   };
@@ -308,8 +356,9 @@ export default function DashboardScreen() {
               const feederDocRef = doc(db, 'feeders', feederId);
               await deleteDoc(feederDocRef);
               
-              const userDocRef = doc(db, 'users', user.uid);
-              await deleteDoc(userDocRef);
+              // Note: Deleting user document might not be desired. Re-evaluate this logic.
+              // const userDocRef = doc(db, 'users', user.uid);
+              // await deleteDoc(userDocRef);
 
               await signOut(auth);
               router.replace("/login");
@@ -348,6 +397,7 @@ export default function DashboardScreen() {
   const handleOpenFeedModal = (bowlNumber: number) => {
     setSelectedBowlForAction(bowlNumber);
     setIsCustomFeedVisible(false);
+    setCustomAmount('');
     setIsFeedModalVisible(true);
   };
 
@@ -416,7 +466,7 @@ export default function DashboardScreen() {
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <View>
           <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16} contentContainerStyle={styles.swiperContainer} decelerationRate="fast" snapToInterval={CARD_WIDTH + 20} snapToAlignment="start">
-            {bowlsConfig.map((bowl) => {
+            {bowlsConfig.map((bowl, index) => {
                 const selectedPetId = selectedPetInBowl[bowl.id];
                 const selectedPet = pets.find(p => p.id === selectedPetId);
                 const activeScheduleCount = selectedPet ? (activeSchedulesByPetId[selectedPet.id] || 0) : 0;
@@ -432,6 +482,7 @@ export default function DashboardScreen() {
                         onPressFeed={() => handleOpenFeedModal(bowl.id)}
                         onPressFilter={() => handleOpenFilterModal(bowl.id)}
                         streamUri={streamUri}
+                        isActive={index === activeIndex} // Pass isActive prop
                     />
                 );
             })}
@@ -536,9 +587,9 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text, flexShrink: 1 },
   onlineIndicator: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#4CAF50' },
   videoFeedPlaceholder: { height: 180, backgroundColor: '#000000', borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 12, overflow: 'hidden' },
-  video: {
-    ...StyleSheet.absoluteFillObject,
-  },
+  video: { ...StyleSheet.absoluteFillObject },
+  videoOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)' },
+  videoOverlayText: { color: COLORS.white, marginTop: 8 },
   videoFeedText: { color: '#999', fontWeight: '500' },
   statusContainer: { marginBottom: 16 },
   statusLabel: { fontSize: 14, color: '#666', marginBottom: 6 },
