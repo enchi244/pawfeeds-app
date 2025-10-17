@@ -1,5 +1,5 @@
 import { SplashScreen, Stack } from 'expo-router';
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 
 // Keep the splash screen visible until the auth state is loaded.
