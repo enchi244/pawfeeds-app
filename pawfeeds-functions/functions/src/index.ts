@@ -1,3 +1,4 @@
+import { Expo, ExpoPushMessage } from "expo-server-sdk";
 import { initializeApp } from "firebase-admin/app";
 import { getDatabase, ServerValue } from "firebase-admin/database";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
@@ -7,6 +8,11 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 
 // Initialize Firebase Admin SDK
 initializeApp();
+const firestore = getFirestore();
+const rtdb = getDatabase();
+
+// Initialize Expo SDK
+const expo = new Expo();
 
 // Define the structure of the expected request body for type safety
 interface RegisterFeederRequest {
@@ -89,9 +95,6 @@ export const scheduledFeedChecker = onSchedule(
 
     logger.info(`Current time in ${timeZone}: ${currentTime}, Day: ${currentDay}`);
 
-    const firestore = getFirestore();
-    const rtdb = getDatabase();
-
     try {
       const feedersSnapshot = await firestore.collection("feeders").get();
       if (feedersSnapshot.empty) {
@@ -103,8 +106,10 @@ export const scheduledFeedChecker = onSchedule(
 
       for (const feederDoc of feedersSnapshot.docs) {
         const feederId = feederDoc.id;
-        const schedulesRef = feederDoc.ref.collection("schedules");
+        const feederData = feederDoc.data();
+        const ownerUid = feederData.owner_uid;
         
+        const schedulesRef = feederDoc.ref.collection("schedules");
         const q = schedulesRef.where("isEnabled", "==", true);
 
         const promise = q.get().then((scheduleSnapshot) => {
@@ -118,6 +123,7 @@ export const scheduledFeedChecker = onSchedule(
             if (schedule.time === currentTime && schedule.repeatDays && schedule.repeatDays.includes(currentDay)) {
               logger.info(`MATCH FOUND: Triggering schedule ${scheduleDoc.id} for feeder ${feederId}`);
 
+              // 1. Send command to RTDB for the feeder
               const command = {
                 command: "feed",
                 bowl: schedule.bowlNumber,
@@ -126,10 +132,16 @@ export const scheduledFeedChecker = onSchedule(
               };
 
               const commandRef = rtdb.ref(`commands/${feederId}`);
-              
               commandRef.set(command).catch((err) => {
                 logger.error(`Failed to send command to feeder ${feederId} for schedule ${scheduleDoc.id}`, err);
               });
+
+              // 2. Send push notification to the owner
+              if (ownerUid) {
+                // We make this non-blocking
+                sendPushNotification(ownerUid, schedule.bowlNumber, schedule.portionGrams)
+                  .catch(err => logger.error(`Failed to send push notification for ${ownerUid}`, err));
+              }
             }
           });
         }).catch(err => {
@@ -146,3 +158,52 @@ export const scheduledFeedChecker = onSchedule(
     }
   }
 );
+
+/**
+ * Helper function to send a push notification to a user.
+ */
+async function sendPushNotification(uid: string, bowl: number, amount: number) {
+  try {
+    // Get the user's push token from Firestore
+    const userDocRef = firestore.collection("users").doc(uid);
+    const userDoc = await userDocRef.get();
+
+    if (!userDoc.exists) {
+      logger.warn(`User document not found for uid: ${uid}. Cannot send notification.`);
+      return;
+    }
+
+    const pushToken = userDoc.data()?.pushToken;
+
+    if (!pushToken) {
+      logger.warn(`No pushToken found for uid: ${uid}. Cannot send notification.`);
+      return;
+    }
+
+    if (!Expo.isExpoPushToken(pushToken)) {
+      logger.error(`Push token ${pushToken} is not a valid Expo push token.`);
+      return;
+    }
+
+    const message: ExpoPushMessage = {
+      to: pushToken,
+      sound: "default",
+      title: "🐾 Feeding Time!",
+      body: `Dispensing ${amount}g of food to Bowl ${bowl}.`,
+      data: { screen: "schedules" }, // Optional: data to handle in-app navigation
+    };
+
+    // Send the notification
+    const chunks = expo.chunkPushNotifications([message]);
+    const tickets: Promise<any>[] = [];
+    for (const chunk of chunks) {
+      tickets.push(expo.sendPushNotificationsAsync(chunk));
+    }
+
+    await Promise.all(tickets);
+    logger.info(`Push notification sent successfully to user: ${uid}`);
+
+  } catch (error) {
+    logger.error(`Error sending push notification to ${uid}:`, error);
+  }
+}

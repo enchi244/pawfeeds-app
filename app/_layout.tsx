@@ -1,6 +1,7 @@
 import { SplashScreen, Stack } from 'expo-router';
 import { useEffect } from 'react';
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import { usePushNotifications } from '../hooks/usePushNotifications'; // Import the hook
 
 // Keep the splash screen visible until the auth state is loaded.
 SplashScreen.preventAutoHideAsync();
@@ -8,6 +9,9 @@ SplashScreen.preventAutoHideAsync();
 function RootLayoutNav() {
   const { authStatus } = useAuth();
   const isLoading = authStatus === 'loading';
+
+  // Register push notification listeners and token
+  usePushNotifications(); // Call the hook here
 
   useEffect(() => {
     if (!isLoading) {
