@@ -1,3 +1,7 @@
+/*
+ * Full file: enchi244/pawfeeds-app/pawfeeds-app-c6c6d3af53f9130a3abd84ae570f3bd8b45a9b11/pawfeeds-functions/functions/src/index.ts
+ */
+
 import { Expo, ExpoPushMessage } from "expo-server-sdk";
 import { initializeApp } from "firebase-admin/app";
 import { getDatabase, ServerValue } from "firebase-admin/database";
@@ -9,7 +13,7 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 // Initialize Firebase Admin SDK
 initializeApp();
 const firestore = getFirestore();
-const rtdb = getDatabase();
+const rtdb = getDatabase(); // Existing RTDB admin instance
 
 // Initialize Expo SDK
 const expo = new Expo();
@@ -161,23 +165,46 @@ export const scheduledFeedChecker = onSchedule(
 
 /**
  * Helper function to send a push notification to a user.
+ * NOW ATTEMPTS BOTH EXPO PUSH AND RTDB LOCAL NOTIFICATION TRIGGER.
  */
 async function sendPushNotification(uid: string, bowl: number, amount: number) {
+  const title = "🐾 Feeding Time!";
+  const body = `Dispensing ${amount}g of food to Bowl ${bowl}.`;
+  const data = { screen: "schedules" }; // Optional data
+
+  // --- NEW: 1. Write to Realtime Database to trigger local notification ---
+  // This will be picked up by the app if it's running.
+  try {
+    const notificationRef = rtdb.ref(`user_notifications/${uid}`).push();
+    await notificationRef.set({
+      title,
+      body,
+      data,
+      timestamp: ServerValue.TIMESTAMP,
+    });
+    logger.info(`RTDB notification message sent to user: ${uid}`);
+  } catch (rtdbError) {
+    logger.error(`Error sending RTDB notification message to ${uid}:`, rtdbError);
+  }
+
+  // --- EXISTING: 2. Attempt to send Expo Push Notification ---
+  // This will work for GMS devices (Google/Samsung) and iOS.
+  // It will gracefully fail for Huawei devices without GMS.
   try {
     // Get the user's push token from Firestore
     const userDocRef = firestore.collection("users").doc(uid);
     const userDoc = await userDocRef.get();
 
     if (!userDoc.exists) {
-      logger.warn(`User document not found for uid: ${uid}. Cannot send notification.`);
+      logger.warn(`User document not found for uid: ${uid}. Cannot send Expo notification.`);
       return;
     }
 
     const pushToken = userDoc.data()?.pushToken;
 
     if (!pushToken) {
-      logger.warn(`No pushToken found for uid: ${uid}. Cannot send notification.`);
-      return;
+      logger.warn(`No pushToken found for uid: ${uid}. Cannot send Expo notification.`);
+      return; // No token, so just return (RTDB message was already sent)
     }
 
     if (!Expo.isExpoPushToken(pushToken)) {
@@ -188,9 +215,9 @@ async function sendPushNotification(uid: string, bowl: number, amount: number) {
     const message: ExpoPushMessage = {
       to: pushToken,
       sound: "default",
-      title: "🐾 Feeding Time!",
-      body: `Dispensing ${amount}g of food to Bowl ${bowl}.`,
-      data: { screen: "schedules" }, // Optional: data to handle in-app navigation
+      title: title,
+      body: body,
+      data: data,
     };
 
     // Send the notification
@@ -201,9 +228,9 @@ async function sendPushNotification(uid: string, bowl: number, amount: number) {
     }
 
     await Promise.all(tickets);
-    logger.info(`Push notification sent successfully to user: ${uid}`);
+    logger.info(`Expo push notification sent successfully to user: ${uid}`);
 
   } catch (error) {
-    logger.error(`Error sending push notification to ${uid}:`, error);
+    logger.error(`Error sending Expo push notification to ${uid}:`, error);
   }
 }
