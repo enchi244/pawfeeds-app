@@ -39,9 +39,9 @@ const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
 
 // ====================================================================================
-// === CONFIGURATION: Update this value to match your container's max capacity in grams ===
+// === CHANGE 1: This constant is no longer needed. The firmware handles percentages. ===
 // ====================================================================================
-const MAX_CONTAINER_CAPACITY_GRAMS = 1000; // 1kg container
+// const MAX_CONTAINER_CAPACITY_GRAMS = 1000; // 1kg container
 
 // --- Interfaces for our data models ---
 interface Pet {
@@ -203,7 +203,13 @@ export default function DashboardScreen() {
 
   const [feederId, setFeederId] = useState<string | null>(null);
   const [streamUris, setStreamUris] = useState<{ [bowlId: string]: string | null }>({});
-  const [containerWeight, setContainerWeight] = useState<number>(0);
+
+  // ============================================================================
+  // === CHANGE 2: Replace `containerWeight` state with `foodLevels` state    ===
+  // ============================================================================
+  // const [containerWeight, setContainerWeight] = useState<number>(0);
+  const [foodLevels, setFoodLevels] = useState<{ [bowlId: string]: number }>({});
+
 
   const bowlsConfig = [{ id: 1 }, { id: 2 }];
 
@@ -224,12 +230,16 @@ export default function DashboardScreen() {
         const currentFeederId = querySnapshot.docs[0].id;
         setFeederId(currentFeederId);
 
-        // --- Real-time listener for feeder document (for container_weight) ---
+        // --- Real-time listener for feeder document ---
         const feederDocRef = doc(db, 'feeders', currentFeederId);
         const feederUnsub = onSnapshot(feederDocRef, (doc) => {
             if (doc.exists()) {
                 const data = doc.data();
-                setContainerWeight(data.container_weight || 0);
+                // =================================================================
+                // === CHANGE 3: Read `foodLevels` map instead of `container_weight`
+                // =================================================================
+                // setContainerWeight(data.container_weight || 0);
+                setFoodLevels(data.foodLevels || { "1": 0, "2": 0 });
             }
         });
         unsubscribes.push(feederUnsub);
@@ -276,12 +286,16 @@ export default function DashboardScreen() {
     return () => unsubscribes.forEach(unsub => unsub());
   }, [user]);
 
+  // ============================================================================
+  // === CHANGE 4: This `useMemo` block is no longer needed, remove it.       ===
+  // ============================================================================
+  /*
   const foodLevelPercentage = useMemo(() => {
     if (containerWeight <= 0) return 0;
     const percentage = (containerWeight / MAX_CONTAINER_CAPACITY_GRAMS) * 100;
     return Math.min(100, Math.round(percentage)); // Ensure it doesn't go over 100%
   }, [containerWeight]);
-
+  */
 
   const petsByBowl = useMemo(() => {
     const bowlMap: { [bowlId: string]: Pet[] } = {};
@@ -495,12 +509,22 @@ export default function DashboardScreen() {
                 const activeScheduleCount = selectedPet ? (activeSchedulesByPetId[selectedPet.id] || 0) : 0;
                 const perMealPortion = (selectedPet && selectedPet.recommendedPortion && activeScheduleCount > 0) ? Math.round(selectedPet.recommendedPortion / activeScheduleCount) : 0;
                 const streamUri = streamUris[bowl.id] || null;
+
+                // =================================================================
+                // === CHANGE 5: Get the specific food level for THIS bowl.        ===
+                // =================================================================
+                const foodLevel = foodLevels[bowl.id] ?? 0;
+                
                 return (
                     <BowlCard
                         key={bowl.id}
                         bowlNumber={bowl.id}
                         selectedPet={selectedPet}
-                        foodLevel={foodLevelPercentage}
+                        // =========================================================
+                        // === CHANGE 6: Pass the specific food level here         ===
+                        // =========================================================
+                        // foodLevel={foodLevelPercentage}
+                        foodLevel={foodLevel}
                         perMealPortion={perMealPortion}
                         onPressFeed={() => handleOpenFeedModal(bowl.id)}
                         onPressFilter={() => handleOpenFilterModal(bowl.id)}
