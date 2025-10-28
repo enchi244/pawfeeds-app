@@ -1,12 +1,16 @@
 /*
  * Full file: enchi244/pawfeeds-app/pawfeeds-app-c6c6d3af53f9130a3abd84ae570f3bd8b45a9b11/pawfeeds-functions/functions/src/index.ts
+ *
+ * MODIFIED: Added onFeederStatusUpdate trigger for low food notifications.
  */
 
 import { Expo, ExpoPushMessage } from "expo-server-sdk";
 import { initializeApp } from "firebase-admin/app";
 import { getDatabase, ServerValue } from "firebase-admin/database";
-import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
+// NEW: Added onDocumentUpdated for Firestore triggers
+import { onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { onRequest, Request } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 
@@ -55,6 +59,8 @@ export const registerFeeder = onRequest(
         status: "online",
         foodLevels: { "1": 100, "2": 100 },
         streamStatus: { "1": "offline", "2": "offline" },
+        // NEW: Initialize cooldown timestamp field
+        lowFoodNotifiedAt: {},
       });
 
       logger.info(`Successfully registered feeder: ${feederId}`);
@@ -164,6 +170,114 @@ export const scheduledFeedChecker = onSchedule(
 );
 
 /**
+ * --- UPDATED FUNCTION ---
+ * Firestore trigger that fires when a feeder document is updated.
+ * Used to check for low food levels and send notifications.
+ *
+ * NOW INCLUDES REFILL LOGIC to reset the notification cooldown.
+ */
+export const onFeederStatusUpdate = onDocumentUpdated(
+  { document: "feeders/{feederId}", region: "asia-southeast1" },
+  async (event) => {
+    if (!event.data) {
+      logger.info("No data in event, exiting.");
+      return;
+    }
+
+    const beforeData = event.data.before.data();
+    const afterData = event.data.after.data();
+
+    // If data is missing, exit
+    if (!beforeData || !afterData) {
+      logger.info("Missing before or after data, exiting.");
+      return;
+    }
+
+    const beforeFoodLevels = beforeData.foodLevels;
+    const afterFoodLevels = afterData.foodLevels;
+    const ownerUid = afterData.owner_uid;
+
+    // Exit if crucial data is missing
+    if (!afterFoodLevels || !ownerUid) {
+      logger.warn("Feeder data missing foodLevels or owner_uid.", { uid: ownerUid, levels: afterFoodLevels });
+      return;
+    }
+
+    // Exit if foodLevels didn't actually change
+    if (JSON.stringify(beforeFoodLevels) === JSON.stringify(afterFoodLevels)) {
+      logger.info("foodLevels did not change. Exiting.");
+      return;
+    }
+
+    const LOW_FOOD_THRESHOLD = 20;
+    const NOTIFICATION_COOLDOWN_MINUTES = 60; 
+
+    const promises: Promise<any>[] = [];
+    let updatesToFeederDoc: { [key: string]: any } = {}; // To batch updates
+
+    // Check each bowl's food level
+    for (const bowl in afterFoodLevels) {
+      const beforeLevel = beforeFoodLevels[bowl] ?? 100;
+      const afterLevel = afterFoodLevels[bowl];
+
+      // --- 1. LOW FOOD LOGIC ---
+      // Check if the food level just dropped below the threshold
+      if (beforeLevel > LOW_FOOD_THRESHOLD && afterLevel <= LOW_FOOD_THRESHOLD) {
+        logger.info(`LOW FOOD DETECTED: Feeder ${event.params.feederId}, Bowl ${bowl} is at ${afterLevel}%. Notifying owner ${ownerUid}.`);
+
+        // --- Cooldown Check ---
+        const lastNotified = afterData.lowFoodNotifiedAt?.[bowl]?.toMillis() ?? 0;
+        const now = Timestamp.now().toMillis();
+        const minutesSinceLastNotified = (now - lastNotified) / (1000 * 60);
+
+        if (minutesSinceLastNotified > NOTIFICATION_COOLDOWN_MINUTES) {
+          logger.info(`Cooldown passed. Sending notification for Bowl ${bowl}.`);
+          
+          // 1. Send the notification
+          promises.push(
+            sendLowFoodNotification(ownerUid, parseInt(bowl, 10), afterLevel)
+              .catch(err => logger.error(`Failed to send low food push notification for ${ownerUid}`, err))
+          );
+
+          // 2. Add the cooldown timestamp to our batch update
+          updatesToFeederDoc[`lowFoodNotifiedAt.${bowl}`] = Timestamp.now();
+        } else {
+          logger.info(`Cooldown active for Feeder ${event.params.feederId}, Bowl ${bowl}. Not sending notification.`);
+        }
+      } 
+      
+      // ==========================================================
+      // --- 2. NEW REFILL LOGIC ---
+      // ==========================================================
+      // Check if the food level just went from LOW to HIGH (a refill)
+      else if (beforeLevel <= LOW_FOOD_THRESHOLD && afterLevel > LOW_FOOD_THRESHOLD) {
+        logger.info(`REFILL DETECTED: Feeder ${event.params.feederId}, Bowl ${bowl} is at ${afterLevel}%. Resetting notification cooldown.`);
+
+        // We only need to reset the cooldown if a timestamp exists
+        if (afterData.lowFoodNotifiedAt?.[bowl]) {
+          // Add the "delete timestamp" command to our batch update
+          // We use dot notation to delete a specific field in a map
+          updatesToFeederDoc[`lowFoodNotifiedAt.${bowl}`] = FieldValue.delete();
+        }
+      }
+    }
+
+    // --- 3. BATCH UPDATE ---
+    // If we have any updates to make (either setting or deleting timestamps),
+    // perform one single update operation.
+    if (Object.keys(updatesToFeederDoc).length > 0) {
+      promises.push(
+        event.data.after.ref.update(updatesToFeederDoc)
+          .catch(err => logger.error(`Failed to update cooldown timestamps for ${ownerUid}`, err))
+      );
+    }
+
+    await Promise.all(promises);
+  }
+);
+
+
+/**
  * Helper function to send a push notification to a user.
  * NOW ATTEMPTS BOTH EXPO PUSH AND RTDB LOCAL NOTIFICATION TRIGGER.
  */
@@ -232,5 +346,76 @@ async function sendPushNotification(uid: string, bowl: number, amount: number) {
 
   } catch (error) {
     logger.error(`Error sending Expo push notification to ${uid}:`, error);
+  }
+}
+
+/**
+ * --- NEW HELPER FUNCTION ---
+ * Helper function to send a LOW FOOD push notification to a user.
+ * (Copied and modified from sendPushNotification)
+ */
+async function sendLowFoodNotification(uid: string, bowl: number, level: number) {
+  const title = "⚠️ Low Food Alert!";
+  // Create a message based on whether it's low or completely empty
+  const body = level > 0 ?
+    `Food container for Bowl ${bowl} is running low (at ${level}%)!` :
+    `Food container for Bowl ${bowl} is empty!`;
+  const data = { screen: "home" }; // Optional: deep link to home/dashboard
+
+  // --- 1. Write to Realtime Database to trigger local notification ---
+  try {
+    const notificationRef = rtdb.ref(`user_notifications/${uid}`).push();
+    await notificationRef.set({
+      title,
+      body,
+      data,
+      timestamp: ServerValue.TIMESTAMP,
+    });
+    logger.info(`RTDB low food notification sent to user: ${uid}`);
+  } catch (rtdbError) {
+    logger.error(`Error sending RTDB low food notification to ${uid}:`, rtdbError);
+  }
+
+  // --- 2. Attempt to send Expo Push Notification ---
+  try {
+    const userDocRef = firestore.collection("users").doc(uid);
+    const userDoc = await userDocRef.get();
+
+    if (!userDoc.exists) {
+      logger.warn(`User document not found for uid: ${uid}. Cannot send Expo notification.`);
+      return;
+    }
+
+    const pushToken = userDoc.data()?.pushToken;
+
+    if (!pushToken) {
+      logger.warn(`No pushToken found for uid: ${uid}. Cannot send Expo notification.`);
+      return;
+    }
+
+    if (!Expo.isExpoPushToken(pushToken)) {
+      logger.error(`Push token ${pushToken} is not a valid Expo push token.`);
+      return;
+    }
+
+    const message: ExpoPushMessage = {
+      to: pushToken,
+      sound: "default",
+      title: title,
+      body: body,
+      data: data,
+    };
+
+    const chunks = expo.chunkPushNotifications([message]);
+    const tickets: Promise<any>[] = [];
+    for (const chunk of chunks) {
+      tickets.push(expo.sendPushNotificationsAsync(chunk));
+    }
+
+    await Promise.all(tickets);
+    logger.info(`Expo low food push notification sent successfully to user: ${uid}`);
+
+  } catch (error) {
+    logger.error(`Error sending Expo low food push notification to ${uid}:`, error);
   }
 }
