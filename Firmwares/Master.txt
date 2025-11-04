@@ -14,8 +14,16 @@
 
 #define SERVO_BOWL_1_PIN 21
 #define SERVO_BOWL_2_PIN 22
-#define HX711_CONTAINER_DOUT_PIN 27
-#define HX711_CONTAINER_SCK_PIN 26
+
+// --- MODIFIED: Bowl 1 Weight Sensor Pins ---
+#define HX711_BOWL1_DOUT_PIN 27
+#define HX711_BOWL1_SCK_PIN 26
+
+// --- NEW: Bowl 2 Weight Sensor Pins ---
+// (Please change these pins if you use 19 or 18 for something else)
+#define HX711_BOWL2_DOUT_PIN 19
+#define HX711_BOWL2_SCK_PIN 18
+
 #define SLAVE_1_SERIAL_TX_PIN 13
 #define SLAVE_1_SERIAL_RX_PIN 12
 #define SLAVE_2_SERIAL_TX_PIN 15
@@ -24,9 +32,12 @@
 const char* AP_SSID = "PawFeeds_Setup";
 const char* AP_PASSWORD = NULL;
 
-// --- Weight Sensor Configuration ---
-#define CALIBRATION_FACTOR -7050.0
-#define CRITICAL_LOW_FOOD_LEVEL_GRAMS 300.0
+// --- MODIFIED: Weight Sensor Configuration ---
+// (You MUST calibrate both sensors)
+#define CALIBRATION_FACTOR_1 -7050.0 
+#define CALIBRATION_FACTOR_2 -7050.0 
+// --- NEW: Define max container weight in grams for percentage calculation
+#define MAX_WEIGHT_GRAMS 2000.0 // e.g., 2kg container
 
 // --- Global Objects & State Machine ---
 WiFiServer server(80);
@@ -37,12 +48,18 @@ FirebaseAuth auth;
 FirebaseConfig config;
 Servo servoBowl1;
 Servo servoBowl2;
-HX711 loadCellContainer;
+
+// --- MODIFIED: Create two load cell objects ---
+HX711 loadCellBowl1;
+HX711 loadCellBowl2;
 
 String feederId = "";
 String streamPath = "/commands/";
 bool streamActive = false;
 unsigned long lastCmdTimestamp = 0;
+
+// --- NEW: Timer for periodic weight updates ---
+unsigned long lastWeightUpdateTime = 0; 
 
 volatile bool newCommandAvailable = false;
 struct Command {
@@ -79,10 +96,13 @@ void streamTimeoutCallback(bool timeout);
 void forwardSlaveLogs();
 bool sendToSlave(HardwareSerial& serial, const String& packet);
 void forwardPacketToSlaves(const String& packet, const String& packetType);
-void updateContainerWeightInFirestore(float weight);
-float getContainerWeight();
-void checkFoodLevelAndNotify(float currentWeight);
 
+// --- MODIFIED: New/Removed Function Prototypes ---
+void updateFoodLevelsInFirestore();
+float getWeightAsPercentage(HX711& sensor, int sensorNum);
+// void updateContainerWeightInFirestore(float weight); // <-- REMOVED
+// float getContainerWeight(); // <-- REMOVED
+// void checkFoodLevelAndNotify(float currentWeight); // <-- REMOVED
 
 void forwardPacketToSlaves(const String& packet, const String& packetType) {
     Serial.printf("[PROVISIONING] Forwarding %s to slave cameras...\n", packetType.c_str());
@@ -112,13 +132,19 @@ void setup() {
     Serial.println("\n[PawFeeds] Booting...");
     servoBowl1.attach(SERVO_BOWL_1_PIN);
     servoBowl2.attach(SERVO_BOWL_2_PIN);
+
+    // --- MODIFIED: Initialize both weight sensors ---
+    Serial.println("[HX711] Initializing weight sensor 1...");
+    loadCellBowl1.begin(HX711_BOWL1_DOUT_PIN, HX711_BOWL1_SCK_PIN);
+    loadCellBowl1.set_scale(CALIBRATION_FACTOR_1);
+    loadCellBowl1.tare();
     
-    Serial.println("[HX711] Initializing container weight sensor...");
-    loadCellContainer.begin(HX711_CONTAINER_DOUT_PIN, HX711_CONTAINER_SCK_PIN);
-    loadCellContainer.set_scale(CALIBRATION_FACTOR);
-    loadCellContainer.tare();
+    Serial.println("[HX711] Initializing weight sensor 2...");
+    loadCellBowl2.begin(HX711_BOWL2_DOUT_PIN, HX711_BOWL2_SCK_PIN);
+    loadCellBowl2.set_scale(CALIBRATION_FACTOR_2);
+    loadCellBowl2.tare();
     
-    Serial.println("[HX711] Ready. Please fill the food container now.");
+    Serial.println("[HX711] Ready. Please fill food containers now.");
     delay(5000);
 
     preferences.begin("pawfeeds", false);
@@ -160,6 +186,15 @@ void loop() {
                 processPendingCommand();
                 newCommandAvailable = false;
             }
+
+            // --- NEW: Periodically update weight every 5 minutes ---
+            if (millis() - lastWeightUpdateTime > 300000) { // 300,000 ms = 5 mins
+                Serial.println("[SYSTEM] Time to update weight levels...");
+                updateFoodLevelsInFirestore();
+                lastWeightUpdateTime = millis(); // Reset the timer
+            }
+            // --- END OF NEW BLOCK ---
+
             break;
         case ERROR:
             Serial.println("[ERROR] Halting.");
@@ -199,10 +234,7 @@ void connectToWiFi() {
 
 void syncTime() {
     Serial.println("[TIME] Syncing with NTP server...");
-    // ===== FIXED CODE BLOCK =====
-    // Set timezone to Philippines Standard Time (UTC+8)
     configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov");
-    // ===== END OF FIX =====
     
     time_t now = time(nullptr);
     int attempts = 0;
@@ -247,6 +279,10 @@ void authenticateWithFirebase() {
     Firebase.reconnectWiFi(true);
 }
 
+
+// ==========================================================
+// === FUNCTION 1: REPLACED WITH FIXED VERSION            ===
+// ==========================================================
 void registerDeviceWithFirestore() {
     if (!Firebase.ready()) {
         Serial.println("[FIREBASE] Waiting for auth token...");
@@ -262,8 +298,20 @@ void registerDeviceWithFirestore() {
 
     FirebaseJson content;
     content.set("fields/owner_uid/stringValue", owner_uid);
-    content.set("fields/online/booleanValue", true);
-    content.set("fields/container_weight/doubleValue", getContainerWeight());
+    content.set("fields/online/booleanValue", true); 
+
+    // --- MODIFIED: Set initial food levels from both sensors ---
+    float initialPercent1 = getWeightAsPercentage(loadCellBowl1, 1);
+    float initialPercent2 = getWeightAsPercentage(loadCellBowl2, 2);
+
+    // ==========================================================
+    // === FIX: Cast floats to int before setting             ===
+    // ==========================================================
+    int initialPercent1_int = (int)initialPercent1;
+    int initialPercent2_int = (int)initialPercent2;
+    content.set("fields/foodLevels/mapValue/fields/1/integerValue", initialPercent1_int);
+    content.set("fields/foodLevels/mapValue/fields/2/integerValue", initialPercent2_int);
+    
     String feederContent;
     content.toString(feederContent, false);
 
@@ -272,7 +320,6 @@ void registerDeviceWithFirestore() {
         feederId = parseFeederIdFromResponse(fbdo.payload());
         if (feederId.length() > 0) {
             preferences.putString("feederId", feederId);
-            
             String feederIdPacket = "FEEDER_ID|";
             feederIdPacket.concat(feederId);
             feederIdPacket.concat("\n");
@@ -301,6 +348,7 @@ void registerDeviceWithFirestore() {
         currentState = ERROR;
     }
 }
+
 
 void startProvisioningServer() {
     Serial.print("[PROVISIONING] Starting Access Point: ");
@@ -446,9 +494,16 @@ void dispenseFood(int bowlNumber, int amount) {
         targetServo->write(90);
         
         delay(2000);
-        float newWeight = getContainerWeight();
-        updateContainerWeightInFirestore(newWeight);
-        checkFoodLevelAndNotify(newWeight);
+        
+        // --- MODIFIED: Update all food levels after dispensing ---
+        // This will read both sensors and update the foodLevels map in Firestore.
+        // The cloud function will then detect the change and send a notification if needed.
+        updateFoodLevelsInFirestore();
+
+        // --- REMOVED: Old single-weight update logic ---
+        // float newWeight = getContainerWeight();
+        // updateContainerWeightInFirestore(newWeight);
+        // checkFoodLevelAndNotify(newWeight);
     }
 }
 
@@ -546,11 +601,14 @@ bool sendToSlave(HardwareSerial& serial, const String& packet) {
                 }
             }
         }
-        delay(200); 
+        delay(200);
     }
     return false;
 }
 
+
+// --- REMOVED OLD WEIGHT FUNCTIONS ---
+/*
 float getContainerWeight() {
     if (loadCellContainer.is_ready()) {
         return loadCellContainer.get_units(10);
@@ -559,36 +617,73 @@ float getContainerWeight() {
         return 0;
     }
 }
-
 void updateContainerWeightInFirestore(float weight) {
+    ...
+}
+void checkFoodLevelAndNotify(float currentWeight) {
+    ...
+}
+*/
+
+// --- NEW: Weight Reading Function (Converts Grams to Percentage) ---
+float getWeightAsPercentage(HX711& sensor, int sensorNum) {
+    if (sensor.is_ready()) {
+        float weightGrams = sensor.get_units(10);
+        
+        // Ensure weight isn't negative (e.g., from calibration drift)
+        if (weightGrams < 0) weightGrams = 0;
+        
+        // Convert to percentage
+        float percentage = (weightGrams / MAX_WEIGHT_GRAMS) * 100.0;
+        
+        // Clamp percentage between 0 and 100
+        if (percentage < 0) return 0;
+        if (percentage > 100) return 100;
+        return percentage;
+    } else {
+        Serial.printf("[HX711] Sensor %d not found.\n", sensorNum);
+        return 0; // Return 0% if sensor is disconnected
+    }
+}
+
+
+// ==========================================================
+// === FUNCTION 2: REPLACED WITH FIXED VERSION            ===
+// ==========================================================
+void updateFoodLevelsInFirestore() {
     if (!Firebase.ready() || feederId.length() == 0) {
-        Serial.println("[FIREBASE] Not ready to update weight.");
+        Serial.println("[FIREBASE] Not ready to update food levels.");
         return;
     }
+
+    // Read percentages from both sensors
+    float percent1 = getWeightAsPercentage(loadCellBowl1, 1);
+    float percent2 = getWeightAsPercentage(loadCellBowl2, 2);
+
+    Serial.printf("[FIREBASE] Updating food levels. Bowl 1: %.0f%%, Bowl 2: %.0f%%\n", percent1, percent2);
 
     String feederPath = "feeders/";
     feederPath.concat(feederId);
 
+    // This JSON structure MUST match the cloud function (index.ts)
+    // { "fields": { "foodLevels": { "mapValue": { "fields": { "1": { "integerValue": ... }, "2": { ... } } } } }
     FirebaseJson content;
-    String fieldName = "container_weight";
     
-    String contentPath = "fields/";
-    contentPath.concat(fieldName);
-    contentPath.concat("/doubleValue");
-    content.set(contentPath.c_str(), weight);
+    // ==========================================================
+    // === FIX: Cast floats to int before setting             ===
+    // ==========================================================
+    int percent1_int = (int)percent1;
+    int percent2_int = (int)percent2;
+    content.set("fields/foodLevels/mapValue/fields/1/integerValue", percent1_int); 
+    content.set("fields/foodLevels/mapValue/fields/2/integerValue", percent2_int);
     
     String contentStr;
     content.toString(contentStr, false);
 
-    if (Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "", feederPath.c_str(), contentStr.c_str(), fieldName.c_str())) {
-        Serial.printf("[FIREBASE] Container weight updated to %.2f\n", weight);
+    // We are patching ONLY the "foodLevels" field in the document
+    if (Firebase.Firestore.patchDocument(&fbdo, FIREBASE_PROJECT_ID, "", feederPath.c_str(), contentStr.c_str(), "foodLevels")) {
+        Serial.println("[FIREBASE] Food levels updated successfully.");
     } else {
-        Serial.printf("[ERROR] Failed to update container weight: %s\n", fbdo.errorReason().c_str());
-    }
-}
-
-void checkFoodLevelAndNotify(float currentWeight) {
-    if (currentWeight <= CRITICAL_LOW_FOOD_LEVEL_GRAMS) {
-        Serial.printf("[WARNING] Food level is critical (%.2f g). Triggering notification...\n", currentWeight);
+        Serial.printf("[ERROR] Failed to update food levels: %s\n", fbdo.errorReason().c_str());
     }
 }
