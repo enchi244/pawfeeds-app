@@ -40,6 +40,7 @@ interface Pet {
   id: string;
   name: string;
   recommendedPortion: number;
+  bowlNumber: number; // <-- 1. EDITED INTERFACE
 }
 
 const parseTimeString = (timeString: string | undefined): Date => {
@@ -113,11 +114,15 @@ export default function ScheduleProfileScreen() {
         const q = query(petsCollectionRef);
         const querySnapshot = await getDocs(q);
         const petsData: Pet[] = [];
+        
+        // --- 2. EDITED FETCH LOGIC ---
         querySnapshot.forEach((doc: DocumentData) => {
+          const data = doc.data();
           petsData.push({
             id: doc.id,
-            name: doc.data().name,
-            recommendedPortion: doc.data().recommendedPortion || 0,
+            name: data.name,
+            recommendedPortion: data.recommendedPortion || 0,
+            bowlNumber: data.bowlNumber || 1, // Read the bowl number here
           } as Pet);
         });
         setPets(petsData);
@@ -131,11 +136,11 @@ export default function ScheduleProfileScreen() {
             setDate(parseTimeString(data.time));
 
             if (data.repeatDays && Array.isArray(data.repeatDays)) {
-                const dayIndices = data.repeatDays.map(dayLetter => STORAGE_DAYS.indexOf(dayLetter)).filter(index => index !== -1);
+                const dayIndices = data.repeatDays.map((dayLetter: string) => STORAGE_DAYS.indexOf(dayLetter)).filter((index: number) => index !== -1);
                 setSelectedDays(dayIndices);
             }
             
-            // 2. Use the more reliable petId to find the selected pet
+            // Use the more reliable petId to find the selected pet
             const pet = petsData.find(p => p.id === data.petId);
             setSelectedPet(pet || null);
             setSelectedBowl(data.bowlNumber || null);
@@ -164,8 +169,8 @@ export default function ScheduleProfileScreen() {
 
   const formatTime = (dateToFormat: Date) => {
     if (isNaN(dateToFormat.getTime())) {
-        // This case should ideally not be hit with the new logic
-        return 'Select a time';
+      // This case should ideally not be hit with the new logic
+      return 'Select a time';
     }
     return dateToFormat.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
   };
@@ -255,7 +260,7 @@ export default function ScheduleProfileScreen() {
           style: 'destructive', 
           onPress: async () => {
             if (isEditing && id && selectedPet && feederId) { // Ensure we have a pet and feederId to update
-              setIsLoading(true);
+              setIsLoading(true); // <-- This is the line (262) that had the typo
               try {
                 const scheduleDocRef = doc(db, 'feeders', feederId, 'schedules', id);
                 await deleteDoc(scheduleDocRef);
@@ -371,7 +376,12 @@ export default function ScheduleProfileScreen() {
                     data={pets}
                     keyExtractor={(item) => item.id}
                     renderItem={({ item }) => (
-                        <TouchableOpacity style={styles.selectionItem} onPress={() => { setSelectedPet(item); setPetModalVisible(false); }}>
+                        // --- 3. EDITED ONPRESS HANDLER ---
+                        <TouchableOpacity style={styles.selectionItem} onPress={() => {
+                          setSelectedPet(item);
+                          setSelectedBowl(item.bowlNumber); // This auto-selects the bowl
+                          setPetModalVisible(false);
+                        }}>
                             <Text style={styles.selectionItemText}>{item.name}</Text>
                         </TouchableOpacity>
                     )}
@@ -384,7 +394,7 @@ export default function ScheduleProfileScreen() {
         </View>
       </Modal>
 
-       <Modal visible={isBowlModalVisible} transparent={true} animationType="fade">
+        <Modal visible={isBowlModalVisible} transparent={true} animationType="fade">
         <View style={styles.modalBackdrop}>
             <View style={styles.selectionModalContent}>
                 <Text style={styles.modalTitle}>Select a Bowl</Text>
@@ -397,7 +407,7 @@ export default function ScheduleProfileScreen() {
                         </TouchableOpacity>
                     )}
                 />
-                 <TouchableOpacity style={styles.cancelButton} onPress={() => setBowlModalVisible(false)}>
+                <TouchableOpacity style={styles.cancelButton} onPress={() => setBowlModalVisible(false)}>
                     <Text style={styles.cancelButtonText}>Cancel</Text>
                 </TouchableOpacity>
             </View>

@@ -1,15 +1,17 @@
 /*
- * Full file: enchi244/pawfeeds-app/pawfeeds-app-c6c6d3af53f9130a3abd84ae570f3bd8b45a9b11/pawfeeds-functions/functions/src/index.ts
+ * Full file: enchi244/pawfeeds-app/pawfeeds-app-b1723b3842afb3d3d24ec3981b9ba1017b0b304c/pawfeeds-functions/functions/src/index.ts
  *
- * MODIFIED: Added onFeederStatusUpdate trigger for low food notifications.
+ * UPDATED:
+ * - scheduledFeedChecker now sends "await_rfid" command with pet's tag ID.
+ * - Added a generic push notification helper.
+ * - onFeederStatusUpdate includes "refill" logic.
  */
 
 import { Expo, ExpoPushMessage } from "expo-server-sdk";
 import { initializeApp } from "firebase-admin/app";
 import { getDatabase, ServerValue } from "firebase-admin/database";
-import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
+import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore"; // <-- Added FieldValue
 import * as logger from "firebase-functions/logger";
-// NEW: Added onDocumentUpdated for Firestore triggers
 import { onDocumentUpdated } from "firebase-functions/v2/firestore";
 import { onRequest, Request } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
@@ -59,7 +61,6 @@ export const registerFeeder = onRequest(
         status: "online",
         foodLevels: { "1": 100, "2": 100 },
         streamStatus: { "1": "offline", "2": "offline" },
-        // NEW: Initialize cooldown timestamp field
         lowFoodNotifiedAt: {},
       });
 
@@ -74,6 +75,9 @@ export const registerFeeder = onRequest(
 
 /**
  * Scheduled Cloud Function that runs every minute to check all schedules.
+ *
+ * UPDATED: Now sends an "await_rfid" command instead of a direct "feed" command.
+ * It fetches the pet's registered RFID tag and sends it with the command.
  */
 export const scheduledFeedChecker = onSchedule(
   {
@@ -84,22 +88,18 @@ export const scheduledFeedChecker = onSchedule(
   async (event) => {
     logger.info("Running scheduled feed checker...");
 
-    // **FIX: Get current time adjusted for the correct timezone**
     const now = new Date();
     const timeZone = "Asia/Singapore";
     
-    // Get hours and minutes in the specified timezone
     const formatterHour = new Intl.DateTimeFormat('en-US', { hour: '2-digit', hour12: false, timeZone });
     const formatterMinute = new Intl.DateTimeFormat('en-US', { minute: '2-digit', timeZone });
     
     const currentHour = formatterHour.format(now).padStart(2, '0');
-    // The hour '24' should be '00' for midnight comparison
     const formattedHour = currentHour === '24' ? '00' : currentHour;
 
     const currentMinute = formatterMinute.format(now).padStart(2, '0');
     const currentTime = `${formattedHour}:${currentMinute}`;
     
-    // Get the current day of the week
     const dayMap = ["U", "M", "T", "W", "R", "F", "S"];
     const currentDay = dayMap[now.getDay()];
 
@@ -122,38 +122,64 @@ export const scheduledFeedChecker = onSchedule(
         const schedulesRef = feederDoc.ref.collection("schedules");
         const q = schedulesRef.where("isEnabled", "==", true);
 
-        const promise = q.get().then((scheduleSnapshot) => {
+        const promise = q.get().then(async (scheduleSnapshot) => {
           if (scheduleSnapshot.empty) {
             return;
           }
 
-          scheduleSnapshot.forEach((scheduleDoc) => {
+          for (const scheduleDoc of scheduleSnapshot.docs) {
             const schedule = scheduleDoc.data();
             
             if (schedule.time === currentTime && schedule.repeatDays && schedule.repeatDays.includes(currentDay)) {
               logger.info(`MATCH FOUND: Triggering schedule ${scheduleDoc.id} for feeder ${feederId}`);
 
-              // 1. Send command to RTDB for the feeder
+              // --- NEW RFID LOGIC ---
+              // 1. Get the pet's RFID tag from their profile
+              const petId = schedule.petId;
+              if (!petId) {
+                logger.warn(`Schedule ${scheduleDoc.id} has no petId. Skipping.`);
+                continue;
+              }
+
+              const petDocRef = firestore.collection("feeders").doc(feederId).collection("pets").doc(petId);
+              const petDoc = await petDocRef.get();
+
+              if (!petDoc.exists) {
+                logger.error(`Pet document ${petId} not found for schedule ${scheduleDoc.id}. Skipping.`);
+                continue;
+              }
+
+              const rfidTagId = petDoc.data()?.rfidTagId;
+              if (!rfidTagId) {
+                logger.warn(`Pet ${petId} has no rfidTagId. Skipping schedule ${scheduleDoc.id}.`);
+                continue;
+              }
+              
+              // 2. Send command to RTDB for the feeder to *await* that tag
               const command = {
-                command: "feed",
+                command: "await_rfid", // <-- NEW COMMAND
                 bowl: schedule.bowlNumber,
                 amount: schedule.portionGrams,
+                expectedTagId: rfidTagId, // <-- NEW FIELD
                 timestamp: ServerValue.TIMESTAMP,
               };
 
               const commandRef = rtdb.ref(`commands/${feederId}`);
               commandRef.set(command).catch((err) => {
-                logger.error(`Failed to send command to feeder ${feederId} for schedule ${scheduleDoc.id}`, err);
+                logger.error(`Failed to send await_rfid command to feeder ${feederId} for schedule ${scheduleDoc.id}`, err);
               });
 
-              // 2. Send push notification to the owner
+              // 3. Send push notification to the owner to let them know the feeder is "waiting"
               if (ownerUid) {
+                const petName = petDoc.data()?.name || "your pet";
+                const title = `Waiting for ${petName}...`;
+                const body = `Feeder is now waiting for ${petName} at Bowl ${schedule.bowlNumber}.`;
                 // We make this non-blocking
-                sendPushNotification(ownerUid, schedule.bowlNumber, schedule.portionGrams)
-                  .catch(err => logger.error(`Failed to send push notification for ${ownerUid}`, err));
+                sendGenericPushNotification(ownerUid, title, body, { screen: "home" })
+                  .catch(err => logger.error(`Failed to send "awaiting" push notification for ${ownerUid}`, err));
               }
             }
-          });
+          }
         }).catch(err => {
             logger.error(`Error querying schedules for feeder ${feederId}:`, err);
         });
@@ -278,16 +304,11 @@ export const onFeederStatusUpdate = onDocumentUpdated(
 
 
 /**
- * Helper function to send a push notification to a user.
- * NOW ATTEMPTS BOTH EXPO PUSH AND RTDB LOCAL NOTIFICATION TRIGGER.
+ * Helper function to send a generic push notification to a user.
+ * (This is a refactored version of your original sendPushNotification)
  */
-async function sendPushNotification(uid: string, bowl: number, amount: number) {
-  const title = "🐾 Feeding Time!";
-  const body = `Dispensing ${amount}g of food to Bowl ${bowl}.`;
-  const data = { screen: "schedules" }; // Optional data
-
-  // --- NEW: 1. Write to Realtime Database to trigger local notification ---
-  // This will be picked up by the app if it's running.
+async function sendGenericPushNotification(uid: string, title: string, body: string, data: { [key: string]: string }) {
+  // --- 1. Write to Realtime Database to trigger local notification ---
   try {
     const notificationRef = rtdb.ref(`user_notifications/${uid}`).push();
     await notificationRef.set({
@@ -299,81 +320,6 @@ async function sendPushNotification(uid: string, bowl: number, amount: number) {
     logger.info(`RTDB notification message sent to user: ${uid}`);
   } catch (rtdbError) {
     logger.error(`Error sending RTDB notification message to ${uid}:`, rtdbError);
-  }
-
-  // --- EXISTING: 2. Attempt to send Expo Push Notification ---
-  // This will work for GMS devices (Google/Samsung) and iOS.
-  // It will gracefully fail for Huawei devices without GMS.
-  try {
-    // Get the user's push token from Firestore
-    const userDocRef = firestore.collection("users").doc(uid);
-    const userDoc = await userDocRef.get();
-
-    if (!userDoc.exists) {
-      logger.warn(`User document not found for uid: ${uid}. Cannot send Expo notification.`);
-      return;
-    }
-
-    const pushToken = userDoc.data()?.pushToken;
-
-    if (!pushToken) {
-      logger.warn(`No pushToken found for uid: ${uid}. Cannot send Expo notification.`);
-      return; // No token, so just return (RTDB message was already sent)
-    }
-
-    if (!Expo.isExpoPushToken(pushToken)) {
-      logger.error(`Push token ${pushToken} is not a valid Expo push token.`);
-      return;
-    }
-
-    const message: ExpoPushMessage = {
-      to: pushToken,
-      sound: "default",
-      title: title,
-      body: body,
-      data: data,
-    };
-
-    // Send the notification
-    const chunks = expo.chunkPushNotifications([message]);
-    const tickets: Promise<any>[] = [];
-    for (const chunk of chunks) {
-      tickets.push(expo.sendPushNotificationsAsync(chunk));
-    }
-
-    await Promise.all(tickets);
-    logger.info(`Expo push notification sent successfully to user: ${uid}`);
-
-  } catch (error) {
-    logger.error(`Error sending Expo push notification to ${uid}:`, error);
-  }
-}
-
-/**
- * --- NEW HELPER FUNCTION ---
- * Helper function to send a LOW FOOD push notification to a user.
- * (Copied and modified from sendPushNotification)
- */
-async function sendLowFoodNotification(uid: string, bowl: number, level: number) {
-  const title = "⚠️ Low Food Alert!";
-  // Create a message based on whether it's low or completely empty
-  const body = level > 0 ?
-    `Food container for Bowl ${bowl} is running low (at ${level}%)!` :
-    `Food container for Bowl ${bowl} is empty!`;
-  const data = { screen: "home" }; // Optional: deep link to home/dashboard
-
-  // --- 1. Write to Realtime Database to trigger local notification ---
-  try {
-    const notificationRef = rtdb.ref(`user_notifications/${uid}`).push();
-    await notificationRef.set({
-      title,
-      body,
-      data,
-      timestamp: ServerValue.TIMESTAMP,
-    });
-    logger.info(`RTDB low food notification sent to user: ${uid}`);
-  } catch (rtdbError) {
-    logger.error(`Error sending RTDB low food notification to ${uid}:`, rtdbError);
   }
 
   // --- 2. Attempt to send Expo Push Notification ---
@@ -413,9 +359,23 @@ async function sendLowFoodNotification(uid: string, bowl: number, level: number)
     }
 
     await Promise.all(tickets);
-    logger.info(`Expo low food push notification sent successfully to user: ${uid}`);
+    logger.info(`Expo push notification sent successfully to user: ${uid}`);
 
   } catch (error) {
-    logger.error(`Error sending Expo low food push notification to ${uid}:`, error);
+    logger.error(`Error sending Expo push notification to ${uid}:`, error);
   }
+}
+
+
+
+/**
+ * Helper function to send a LOW FOOD push notification to a user.
+ */
+async function sendLowFoodNotification(uid: string, bowl: number, level: number) {
+  const title = "⚠️ Low Food Alert!";
+  const body = level > 0 ?
+    `Food container for Bowl ${bowl} is running low (at ${level}%)!` :
+    `Food container for Bowl ${bowl} is empty!`;
+  const data = { screen: "home" };
+  await sendGenericPushNotification(uid, title, body, data);
 }
