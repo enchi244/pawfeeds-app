@@ -50,11 +50,11 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": true,
+            "minSdkVersion": 26
           }
         }
-      ],
-      "react-native-video"
+      ]
     ],
     "experiments": {
       "typedRoutes": true

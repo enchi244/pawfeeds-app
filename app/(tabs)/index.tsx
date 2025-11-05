@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { getDatabase, ref, serverTimestamp as rtdbServerTimestamp, set } from 'firebase/database';
 import { collection, deleteDoc, doc, getDocs, onSnapshot, query, Unsubscribe, where } from 'firebase/firestore';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,7 +21,10 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Video, { VideoRef } from 'react-native-video';
+// ==========================================================
+// === THIS IS THE CHANGE: Import the new VLC player        ===
+// ==========================================================
+import { VLCPlayer } from 'react-native-vlc-media-player';
 import { useAuth } from '../../context/AuthContext';
 import { auth, db } from '../../firebaseConfig';
 
@@ -68,8 +71,10 @@ interface BowlCardProps {
 
 const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel, perMealPortion, onPressFeed, onPressFilter, streamUri, isActive }) => {
     const isUnassigned = !selectedPet;
-    const videoRef = useRef<VideoRef>(null);
-    const [showBuffering, setShowBuffering] = useState(true);
+    
+    // We can remove the old VideoRef and showBuffering state
+    // const videoRef = useRef<VideoRef>(null);
+    // const [showBuffering, setShowBuffering] = useState(true);
 
     // This useEffect can stay, to ensure audio is correctly configured
     useEffect(() => {
@@ -79,17 +84,10 @@ const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel,
         setAudio();
     }, []);
 
-    // This is the new, simpler buffering handler
-    const handleBuffer = (meta: { isBuffering: boolean }) => {
-      // Only show buffering for the active card
-      setShowBuffering(isActive && meta.isBuffering);
-    };
-
     const handleError = (error: any) => {
         // Only log errors for the active card
         if (isActive) {
-          console.error(`[Video Player Bowl ${bowlNumber}] Playback Error:`, error);
-          setShowBuffering(false);
+          console.error(`[VLC Player Bowl ${bowlNumber}] Playback Error:`, error);
         }
     };
 
@@ -106,32 +104,20 @@ const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel,
           {streamUri ? (
             <>
               {/* ================================================================ */}
-              {/* === THIS IS THE FIX: Only render the <Video> component         === */}
-              {/* === if the card is active. This stops the 404 error.         === */}
+              {/* === THIS IS THE FIX: Only render the <VlCPlayer> component   === */}
+              {/* === if the card is active.                                   === */}
               {/* ================================================================ */}
               {isActive && (
-                <Video
-                  ref={videoRef}
+                <VLCPlayer
                   style={styles.video}
                   source={{ uri: streamUri }}
                   resizeMode="cover"
-                  // repeat={true} // <-- REMOVED: This prop is not for live HLS streams
                   muted={true}
                   paused={false} // It's only rendered if active, so it should never be paused
-                  playInBackground={false}
-                  onBuffer={handleBuffer}
                   onError={handleError}
-                  onLoadStart={() => setShowBuffering(true)} // Show spinner on load
-                  onLoad={() => setShowBuffering(false)} // Hide spinner when loaded
+                  videoAspectRatio={`${16}:${9}`} // You might need to adjust this
+                  // The VLC player has its own internal loading spinner
                 />
-              )}
-
-              {/* Always show buffering spinner if this card is active and loading */}
-              {showBuffering && isActive && (
-                <View style={styles.videoOverlay}>
-                  <ActivityIndicator color={COLORS.white} />
-                  <Text style={styles.videoOverlayText}>Connecting...</Text>
-                </View>
               )}
             </>
           ) : (
@@ -193,11 +179,13 @@ export default function DashboardScreen() {
 
   const [feederId, setFeederId] = useState<string | null>(null);
   
-  const PUBLIC_HLS_SERVER_IP = '134.209.100.91';
+  const PUBLIC_HLS_SERVER_DOMAIN = 'workspherecbd.site';
   
+  // We use the NON-NESTED URL, as this was the last state we tested
+  // VLC player can handle either, but this is simpler.
   const [streamUris, setStreamUris] = useState<{ [bowlId: string]: string | null }>({
-    '1': `http://${PUBLIC_HLS_SERVER_IP}/hls/stream1.m3u8`,
-    '2': `http://${PUBLIC_HLS_SERVER_IP}/hls/stream2.m3u8`,
+    '1': `https://${PUBLIC_HLS_SERVER_DOMAIN}/hls/stream1.m3u8`,
+    '2': `https://${PUBLIC_HLS_SERVER_DOMAIN}/hls/stream2.m3u8`,
   });
 
   const [foodLevels, setFoodLevels] = useState<{ [bowlId: string]: number }>({});
