@@ -22,7 +22,6 @@ const CAMERA_SOURCES = {
   // Key: The "stream key" to push to. e.g., rtmp://.../live/stream1
   // Value: The local IP of the camera.
   'stream1': 'http://192.168.1.183/stream', // Bowl 1 Camera
-  'stream2': 'http://192.168.1.187/stream', // Bowl 2 Camera
 };
 
 // FFmpeg settings for a stable MJPEG -> RTMP push
@@ -32,6 +31,7 @@ const FFMPEG_OPTIONS = [
   '-c:v libx264',            // Use libx264 codec
   '-preset ultrafast',       // Prioritize low-CPU
   '-tune zerolatency',       // Optimize for live streaming
+  '-profile:v baseline',     // <-- ADDED FOR MAX COMPATIBILITY
   '-pix_fmt yuv420p',        // Standard pixel format for compatibility
   '-an',                     // No audio
   '-f flv'                   // Force format to FLV (standard for RTMP)
@@ -48,7 +48,11 @@ console.log('[RelayPusher] PawFeeds Relay Pusher starting...');
  */
 function startStreamProcess(streamKey, cameraUrl) {
   const outputUrl = `${RTMP_BASE_URL}/${streamKey}`;
-  console.log(`[FFmpeg ${streamKey}] Initializing stream: ${cameraUrl} -> ${outputUrl}`);
+  console.log(`\n======================================================`);
+  console.log(`[DEBUG ${streamKey}] ATTEMPTING TO START STREAM PROCESS`);
+  console.log(`[DEBUG ${streamKey}] Source: ${cameraUrl}`);
+  console.log(`[DEBUG ${streamKey}] Destination: ${outputUrl}`);
+  console.log(`======================================================\n`);
 
   const ffmpegProcess = ffmpeg(cameraUrl, { timeout: 43200 })
     // --- STABILITY FIXES for MJPEG Input ---
