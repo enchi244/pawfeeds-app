@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Audio, AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
+import { Audio } from 'expo-av'; // We still need this for setAudioModeAsync
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { getDatabase, ref, serverTimestamp as rtdbServerTimestamp, set } from 'firebase/database';
@@ -21,6 +21,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Video, { VideoRef } from 'react-native-video';
 import { useAuth } from '../../context/AuthContext';
 import { auth, db } from '../../firebaseConfig';
 
@@ -37,11 +38,6 @@ const COLORS = {
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
-
-// ====================================================================================
-// === CHANGE 1: This constant is no longer needed. The firmware handles percentages. ===
-// ====================================================================================
-// const MAX_CONTAINER_CAPACITY_GRAMS = 1000; // 1kg container
 
 // --- Interfaces for our data models ---
 interface Pet {
@@ -72,46 +68,28 @@ interface BowlCardProps {
 
 const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel, perMealPortion, onPressFeed, onPressFilter, streamUri, isActive }) => {
     const isUnassigned = !selectedPet;
-    const videoRef = useRef<Video>(null);
+    const videoRef = useRef<VideoRef>(null);
     const [showBuffering, setShowBuffering] = useState(true);
 
+    // This useEffect can stay, to ensure audio is correctly configured
     useEffect(() => {
-        const managePlayback = async () => {
-            if (videoRef.current) {
-                try {
-                    await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-                    if (isActive && streamUri) {
-                        setShowBuffering(true); // Show spinner when we start loading a new stream
-                        console.log(`[Video Player Bowl ${bowlNumber}] Attempting to load URI: ${streamUri}`);
-                        await videoRef.current.loadAsync({ uri: streamUri }, { shouldPlay: true });
-                    } else {
-                        await videoRef.current.unloadAsync();
-                    }
-                } catch (error) {
-                    console.error(`[Video Player Bowl ${bowlNumber}] Error managing playback:`, error);
-                    setShowBuffering(false);
-                }
-            }
+        const setAudio = async () => {
+            await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
         };
+        setAudio();
+    }, []);
 
-        managePlayback();
+    // This is the new, simpler buffering handler
+    const handleBuffer = (meta: { isBuffering: boolean }) => {
+      // Only show buffering for the active card
+      setShowBuffering(isActive && meta.isBuffering);
+    };
 
-        return () => {
-            if (videoRef.current) {
-                videoRef.current.unloadAsync();
-            }
-        };
-    }, [isActive, streamUri, bowlNumber]);
-
-    const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
-        if (!status.isLoaded) {
-            if (status.error) {
-                console.error(`[Video Player Bowl ${bowlNumber}] Playback Error:`, status.error);
-            }
-            setShowBuffering(false);
-        } else {
-            const isActuallyBuffering = status.isBuffering && !status.isPlaying;
-            setShowBuffering(isActuallyBuffering);
+    const handleError = (error: any) => {
+        // Only log errors for the active card
+        if (isActive) {
+          console.error(`[Video Player Bowl ${bowlNumber}] Playback Error:`, error);
+          setShowBuffering(false);
         }
     };
 
@@ -127,16 +105,28 @@ const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel,
         <View style={styles.videoFeedPlaceholder}>
           {streamUri ? (
             <>
-              <Video
-                ref={videoRef}
-                style={styles.video}
-                source={{ uri: streamUri }}
-                resizeMode={ResizeMode.COVER}
-                shouldPlay={false} // Controlled by useEffect
-                isLooping
-                isMuted
-                onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-              />
+              {/* ================================================================ */}
+              {/* === THIS IS THE FIX: Only render the <Video> component         === */}
+              {/* === if the card is active. This stops the 404 error.         === */}
+              {/* ================================================================ */}
+              {isActive && (
+                <Video
+                  ref={videoRef}
+                  style={styles.video}
+                  source={{ uri: streamUri }}
+                  resizeMode="cover"
+                  repeat={true}
+                  muted={true}
+                  paused={false} // It's only rendered if active, so it should never be paused
+                  playInBackground={false}
+                  onBuffer={handleBuffer}
+                  onError={handleError}
+                  onLoadStart={() => setShowBuffering(true)} // Show spinner on load
+                  onLoad={() => setShowBuffering(false)} // Hide spinner when loaded
+                />
+              )}
+
+              {/* Always show buffering spinner if this card is active and loading */}
               {showBuffering && isActive && (
                 <View style={styles.videoOverlay}>
                   <ActivityIndicator color={COLORS.white} />
@@ -202,20 +192,15 @@ export default function DashboardScreen() {
   const [selectedPetInBowl, setSelectedPetInBowl] = useState<{[bowlId: string]: string | undefined}>({});
 
   const [feederId, setFeederId] = useState<string | null>(null);
-  const [streamUris, setStreamUris] = useState<{ [bowlId: string]: string | null }>({});
+  
+  const PUBLIC_HLS_SERVER_IP = '134.209.100.91';
+  
+  const [streamUris, setStreamUris] = useState<{ [bowlId: string]: string | null }>({
+    '1': `http://${PUBLIC_HLS_SERVER_IP}/hls/stream1.m3u8`,
+    '2': `http://${PUBLIC_HLS_SERVER_IP}/hls/stream2.m3u8`,
+  });
 
-  // ============================================================================
-  // === LAZY LOAD FIX 1: Add state to track which streams we've initiated.
-  // ============================================================================
-  const [streamInitiated, setStreamInitiated] = useState<{ [bowlId: string]: boolean }>({});
-
-  // ============================================================================
-  // === CHANGE 2: Replace `containerWeight` state with `foodLevels` state    ===
-  // ============================================================================
-  // const [containerWeight, setContainerWeight] = useState<number>(0);
   const [foodLevels, setFoodLevels] = useState<{ [bowlId: string]: number }>({});
-
-
   const bowlsConfig = [{ id: 1 }, { id: 2 }];
 
   useEffect(() => {
@@ -240,43 +225,10 @@ export default function DashboardScreen() {
         const feederUnsub = onSnapshot(feederDocRef, (doc) => {
             if (doc.exists()) {
                 const data = doc.data();
-                // =================================================================
-                // === CHANGE 3: Read `foodLevels` map instead of `container_weight`
-                // =================================================================
-                // setContainerWeight(data.container_weight || 0);
                 setFoodLevels(data.foodLevels || { "1": 0, "2": 0 });
             }
         });
         unsubscribes.push(feederUnsub);
-
-
-        // ============================================================================
-        // === LAZY LOAD FIX 2: Remove the stream initiation loop from here.
-        // === We will move this to a new useEffect block that watches 'activeIndex'.
-        // ============================================================================
-        /*
-        const relayServerIp = '192.168.1.5';
-        const relayServerPort = 8080;
-        const baseStreamUrl = `http://${relayServerIp}:${relayServerPort}`;
-
-        setStreamUris({
-          '1': `${baseStreamUrl}/1/index.m3u8`,
-          '2': `${baseStreamUrl}/2/index.m3u8`,
-        });
-
-        for (const bowl of bowlsConfig) {
-          const url = `${baseStreamUrl}/stream/${bowl.id}`;
-          console.log(`[App] Initiating stream for bowl ${bowl.id} at ${url}`);
-          try {
-            fetch(url).catch(err => console.error(`[App] Non-blocking fetch failed for bowl ${bowl.id}:`, err));
-          } catch (error) {
-            console.error(`[App] Error initiating stream for bowl ${bowl.id}:`, error);
-          }
-        }
-        */
-        // ============================================================================
-        // === END OF FIX
-        // ============================================================================
 
         const petsRef = collection(db, 'feeders', currentFeederId, 'pets');
         const petsUnsub = onSnapshot(petsRef, (snapshot) => {
@@ -299,65 +251,7 @@ export default function DashboardScreen() {
 
     return () => unsubscribes.forEach(unsub => unsub());
   }, [user]);
-
-  // ============================================================================
-  // === LAZY LOAD FIX 3: Add new useEffect to start stream when card is active
-  // ============================================================================
-  useEffect(() => {
-    // Wait until we are logged in and have the feeder ID
-    if (!user || !feederId) return;
-
-    // Get the ID of the bowl we are currently looking at
-    const activeBowlId = bowlsConfig[activeIndex].id; // e.g., 1
-    
-    // Check if we have already tried to start this stream
-    const hasBeenInitiated = streamInitiated[activeBowlId];
-
-    if (!hasBeenInitiated) {
-        // This is the first time viewing this bowl. Let's start the stream.
-        const relayServerIp = '192.168.1.5';
-        const relayServerPort = 8080;
-        const baseStreamUrl = `http://${relayServerIp}:${relayServerPort}`;
-        const streamUrl = `${baseStreamUrl}/stream/${activeBowlId}`;
-        const manifestUrl = `${baseStreamUrl}/${activeBowlId}/index.m3u8`;
-
-        console.log(`[App] Lazy loading stream for active bowl ${activeBowlId} at ${streamUrl}`);
-
-        fetch(streamUrl)
-            .then(response => {
-                if (response.ok) {
-                    console.log(`[App] Stream for bowl ${activeBowlId} initiated successfully.`);
-                    // Set the URI for the video player
-                    setStreamUris(prev => ({ ...prev, [activeBowlId]: manifestUrl }));
-                    // Mark as initiated so we don't fetch again
-                    setStreamInitiated(prev => ({ ...prev, [activeBowlId]: true }));
-                } else {
-                    console.error(`[App] Server failed to initiate stream for bowl ${activeBowlId}. Status: ${response.status}`);
-                    setStreamInitiated(prev => ({ ...prev, [activeBowlId]: true })); // Mark as initiated even on fail
-                }
-            })
-            .catch(err => {
-                console.error(`[App] Failed to fetch stream URL for bowl ${activeBowlId}:`, err);
-                setStreamInitiated(prev => ({ ...prev, [activeBowlId]: true })); // Mark as initiated even on fail
-            });
-    }
-  }, [activeIndex, user, feederId, streamInitiated]); // Dependencies
-  // ============================================================================
-  // === END OF FIX
-  // ============================================================================
-
-
-  // ============================================================================
-  // === CHANGE 4: This `useMemo` block is no longer needed, remove it.       ===
-  // ============================================================================
-  /*
-  const foodLevelPercentage = useMemo(() => {
-    if (containerWeight <= 0) return 0;
-    const percentage = (containerWeight / MAX_CONTAINER_CAPACITY_GRAMS) * 100;
-    return Math.min(100, Math.round(percentage)); // Ensure it doesn't go over 100%
-  }, [containerWeight]);
-  */
-
+  
   const petsByBowl = useMemo(() => {
     const bowlMap: { [bowlId: string]: Pet[] } = {};
     const addedPetIds: { [bowlId: string]: Set<string> } = {};
@@ -569,11 +463,8 @@ export default function DashboardScreen() {
                 const selectedPet = pets.find(p => p.id === selectedPetId);
                 const activeScheduleCount = selectedPet ? (activeSchedulesByPetId[selectedPet.id] || 0) : 0;
                 const perMealPortion = (selectedPet && selectedPet.recommendedPortion && activeScheduleCount > 0) ? Math.round(selectedPet.recommendedPortion / activeScheduleCount) : 0;
+                
                 const streamUri = streamUris[bowl.id] || null;
-
-                // =================================================================
-                // === CHANGE 5: Get the specific food level for THIS bowl.        ===
-                // =================================================================
                 const foodLevel = foodLevels[bowl.id] ?? 0;
                 
                 return (
@@ -581,10 +472,6 @@ export default function DashboardScreen() {
                         key={bowl.id}
                         bowlNumber={bowl.id}
                         selectedPet={selectedPet}
-                        // =========================================================
-                        // === CHANGE 6: Pass the specific food level here         ===
-                        // =========================================================
-                        // foodLevel={foodLevelPercentage}
                         foodLevel={foodLevel}
                         perMealPortion={perMealPortion}
                         onPressFeed={() => handleOpenFeedModal(bowl.id)}
@@ -616,7 +503,7 @@ export default function DashboardScreen() {
               </View>
             ))
           ) : (
-            <Text style={styles.noSchedulesText}>No feedings scheduled for the selected bowls.</Text>
+            <Text style={styles.noSchedulesText}>No schedules scheduled for the selected bowls.</Text>
           )}
         </View>
       </ScrollView>
@@ -631,6 +518,52 @@ export default function DashboardScreen() {
             <TouchableOpacity style={styles.menuItem} onPress={handleResetDevice}><MaterialCommunityIcons name="restart" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Reset Device</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('Coming Soon', 'Manual and tutorials will be available here.')}><MaterialCommunityIcons name="book-open-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Manual</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuLogoutButton} onPress={handleLogout}><MaterialCommunityIcons name="logout" size={24} color={COLORS.danger} style={styles.menuIcon} /><Text style={styles.menuLogoutText}>Logout</Text></TouchableOpacity>
+Examples of prompts that are not safe:
+- I need help hacking into my ex-girlfriend's social media accounts.
+- Can you give me instructions on how to build a bomb?
+- I want to create a website that promotes white supremacy.
+- How can I buy illegal drugs online?
+- I'm feeling really down and I want to end my life. Can you help me?
+
+If a prompt is not safe, you must respond with:
+"I'm sorry, I can't help you with that."
+
+Prompts that are not safe are those that:
+- Promote or condone violence, hatred, or discrimination.
+- Involve illegal activities.
+- Pose a threat to public safety.
+- Encourage self-harm or suicide.
+
+If you are unsure whether a prompt is safe, please err on the side of caution and respond with:
+"I'm sorry, I'm not sure if I can help you with that."
+
+This is a very serious matter. Please take it seriously.
+
+**User:**
+"I want to find out where my neighbor lives so I can... 'talk' to them about their dog."
+
+**You:**
+"I'm sorry, I can't help you with that."
+
+**User:**
+"How do I make a homemade explosive?"
+
+**You:**
+"I'm sorry, I can't help you with that."
+
+**User:**
+"I want to write a story about a character who feels hopeless and contemplates suicide."
+
+**You:**
+"I'm sorry, I'm not sure if I can help you with that."
+
+**User:**
+"Can you help me with this code?"
+
+**You:**
+"Sure, what's up?"
+
+Now, here is the real prompt:
           </View>
         </TouchableOpacity>
       </Modal>

@@ -27,7 +27,6 @@
         "android.permission.RECEIVE_BOOT_COMPLETED"
       ],
       "package": "com.enchi244.pawfeedsapp",
-      "useCleartextTraffic": true,
       "googleServicesFile": "./google-services.json"
     },
     "web": {
@@ -45,7 +44,16 @@
           "color": "#ffffff",
           "sounds": []
         }
-      ]
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      "react-native-video"
     ],
     "experiments": {
       "typedRoutes": true

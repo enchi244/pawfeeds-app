@@ -151,19 +151,26 @@ void loop() {
       break;
     case OPERATIONAL:
       if (!cameraTaskStarted) {
-          Serial.println("[SYSTEM] Firebase is ready. Starting camera task on Core 1.");
-          xTaskCreatePinnedToCore(
-            camera_server_task,
-            "CameraServer",
-            10000,
-            NULL,
-            2,
-            NULL,
-            1
-          );
-          cameraTaskStarted = true;
+        Serial.println("[SYSTEM] Firebase is ready. Starting camera task on Core 1.");
+        xTaskCreatePinnedToCore(
+          camera_server_task,
+          "CameraServer",
+          10000,
+          NULL,
+          2,
+          NULL,
+          1
+        );
+        cameraTaskStarted = true;
       }
 
+      // ===================================================================
+      // === THIS IS THE FIX: Disable the RTDB stream ======================
+      // ===================================================================
+      // By commenting out this block, Core 0 is now free and will not
+      // compete with Core 1 for network resources, which was causing
+      // the "Send chunk failed" error.
+      /*
       if (!streamActive) {
         startRTDBStream();
       }
@@ -171,6 +178,10 @@ void loop() {
         Serial.println("[ERROR] Stream read error!");
         streamActive = false;
       }
+      */
+      // ===================================================================
+      // === END OF FIX ====================================================
+      // ===================================================================
       break;
     case ERROR:
       Serial.println("[ERROR] Halting.");
