@@ -205,6 +205,11 @@ export default function DashboardScreen() {
   const [streamUris, setStreamUris] = useState<{ [bowlId: string]: string | null }>({});
 
   // ============================================================================
+  // === LAZY LOAD FIX 1: Add state to track which streams we've initiated.
+  // ============================================================================
+  const [streamInitiated, setStreamInitiated] = useState<{ [bowlId: string]: boolean }>({});
+
+  // ============================================================================
   // === CHANGE 2: Replace `containerWeight` state with `foodLevels` state    ===
   // ============================================================================
   // const [containerWeight, setContainerWeight] = useState<number>(0);
@@ -245,6 +250,11 @@ export default function DashboardScreen() {
         unsubscribes.push(feederUnsub);
 
 
+        // ============================================================================
+        // === LAZY LOAD FIX 2: Remove the stream initiation loop from here.
+        // === We will move this to a new useEffect block that watches 'activeIndex'.
+        // ============================================================================
+        /*
         const relayServerIp = '192.168.1.5';
         const relayServerPort = 8080;
         const baseStreamUrl = `http://${relayServerIp}:${relayServerPort}`;
@@ -263,6 +273,10 @@ export default function DashboardScreen() {
             console.error(`[App] Error initiating stream for bowl ${bowl.id}:`, error);
           }
         }
+        */
+        // ============================================================================
+        // === END OF FIX
+        // ============================================================================
 
         const petsRef = collection(db, 'feeders', currentFeederId, 'pets');
         const petsUnsub = onSnapshot(petsRef, (snapshot) => {
@@ -285,6 +299,53 @@ export default function DashboardScreen() {
 
     return () => unsubscribes.forEach(unsub => unsub());
   }, [user]);
+
+  // ============================================================================
+  // === LAZY LOAD FIX 3: Add new useEffect to start stream when card is active
+  // ============================================================================
+  useEffect(() => {
+    // Wait until we are logged in and have the feeder ID
+    if (!user || !feederId) return;
+
+    // Get the ID of the bowl we are currently looking at
+    const activeBowlId = bowlsConfig[activeIndex].id; // e.g., 1
+    
+    // Check if we have already tried to start this stream
+    const hasBeenInitiated = streamInitiated[activeBowlId];
+
+    if (!hasBeenInitiated) {
+        // This is the first time viewing this bowl. Let's start the stream.
+        const relayServerIp = '192.168.1.5';
+        const relayServerPort = 8080;
+        const baseStreamUrl = `http://${relayServerIp}:${relayServerPort}`;
+        const streamUrl = `${baseStreamUrl}/stream/${activeBowlId}`;
+        const manifestUrl = `${baseStreamUrl}/${activeBowlId}/index.m3u8`;
+
+        console.log(`[App] Lazy loading stream for active bowl ${activeBowlId} at ${streamUrl}`);
+
+        fetch(streamUrl)
+            .then(response => {
+                if (response.ok) {
+                    console.log(`[App] Stream for bowl ${activeBowlId} initiated successfully.`);
+                    // Set the URI for the video player
+                    setStreamUris(prev => ({ ...prev, [activeBowlId]: manifestUrl }));
+                    // Mark as initiated so we don't fetch again
+                    setStreamInitiated(prev => ({ ...prev, [activeBowlId]: true }));
+                } else {
+                    console.error(`[App] Server failed to initiate stream for bowl ${activeBowlId}. Status: ${response.status}`);
+                    setStreamInitiated(prev => ({ ...prev, [activeBowlId]: true })); // Mark as initiated even on fail
+                }
+            })
+            .catch(err => {
+                console.error(`[App] Failed to fetch stream URL for bowl ${activeBowlId}:`, err);
+                setStreamInitiated(prev => ({ ...prev, [activeBowlId]: true })); // Mark as initiated even on fail
+            });
+    }
+  }, [activeIndex, user, feederId, streamInitiated]); // Dependencies
+  // ============================================================================
+  // === END OF FIX
+  // ============================================================================
+
 
   // ============================================================================
   // === CHANGE 4: This `useMemo` block is no longer needed, remove it.       ===

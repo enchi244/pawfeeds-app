@@ -27,6 +27,15 @@ app.use((req, res, next) => {
   console.log(`[Relay] Request Received: ${req.method} ${req.url} from ${req.socket.remoteAddress}`);
   next();
 });
+
+// --- STABILITY FIX: Add CORS headers to allow cross-domain requests ---
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  next();
+});
+
 app.use(express.static(HLS_OUTPUT_DIR)); // Serve the HLS files
 
 // --- ROUTES ---
@@ -66,23 +75,35 @@ app.get('/stream/:bowlNumber', (req, res) => {
   };
 
   ffmpegProcess = ffmpeg(`${cameraIp}/stream`, { timeout: 43200 })
-    // --- SOLUTION 1: Specify input codec correctly ---
-    .inputOption('-c:v mjpeg')
+    // --- STABILITY FIX 1: Tell ffmpeg the input format is MJPEG ---
+    .inputFormat('mjpeg')
+    // --- STABILITY FIX 2: Tell ffmpeg to read the stream at its native rate (10fps) ---
+    // This is CRITICAL for stability with a "bursty" source like our ESP32.
+    .inputOption('-re')
+    // --- STABILITY FIX 3: Tell ffmpeg the input FPS is 10 (to match delay(100)) ---
+    .inputFPS(10)
     .addOptions([
-      // '-c:v mjpeg', // Removed from here
+      // Tell ffmpeg to skip bad frames instead of stalling
+      '-fflags +discardcorrupt',
+      // Keep 2-second segments
       '-hls_time 2',
-      '-hls_list_size 5',
+      // ==========================================================
+      // === STABILITY FIX 4: Increase buffer to 20 seconds (10 chunks * 2s)
+      // ==========================================================
+      '-hls_list_size 10',
       '-hls_flags delete_segments',
-      '-g 10',
+      // Keyframe every 10 frames (1 per sec)
+      '-g 10', 
       '-c:v libx264',
       '-preset ultrafast',
       '-tune zerolatency',
       '-pix_fmt yuv420p',
-      '-an',
+      '-an', // No audio
     ])
     .output(manifestPath)
     .on('start', (commandLine) => {
       console.log(`[FFmpeg Bowl ${bowlNumber}] Successfully spawned.`);
+      console.log(`[FFmpeg Bowl ${bowlNumber}] Command: ${commandLine}`); // Log the full command
     })
     .on('error', (err, stdout, stderr) => {
       console.error(`[FFmpeg Bowl ${bowlNumber}] FATAL ERROR: ${err.message}`);
@@ -102,7 +123,7 @@ app.get('/stream/:bowlNumber', (req, res) => {
   ffmpegProcess.run();
   activeStreams.set(bowlNumber, ffmpegProcess);
 
-  // --- SOLUTION 2: Increase timeout to 30 seconds ---
+  // --- Increase timeout to 30 seconds ---
   const timeout = 30000; // 30 seconds
   const interval = 100; // Check every 100ms
   let timeElapsed = 0;
