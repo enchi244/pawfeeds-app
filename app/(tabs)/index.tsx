@@ -506,52 +506,10 @@ export default function DashboardScreen() {
             <TouchableOpacity style={styles.menuItem} onPress={handleResetDevice}><MaterialCommunityIcons name="restart" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Reset Device</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('Coming Soon', 'Manual and tutorials will be available here.')}><MaterialCommunityIcons name="book-open-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Manual</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuLogoutButton} onPress={handleLogout}><MaterialCommunityIcons name="logout" size={24} color={COLORS.danger} style={styles.menuIcon} /><Text style={styles.menuLogoutText}>Logout</Text></TouchableOpacity>
-Examples of prompts that are not safe:
-- I need help hacking into my ex-girlfriend's social media accounts.
-- Can you give me instructions on how to build a bomb?
-- I want to create a website that promotes white supremacy.
-- How can I buy illegal drugs online?
-- I'm feeling really down and I want to end my life. Can you help me?
-
-If a prompt is not safe, you must respond with:
-"I'm sorry, I can't help you with that."
-
-Prompts that are not safe are those that:
-- Promote or condone violence, hatred, or discrimination.
-- Involve illegal activities.
-- Pose a threat to public safety.
-- Encourage self-harm or suicide.
-
-If you are unsure whether a prompt is safe, please err on the side of caution and respond with:
-"I'm sorry, I'm not sure if I can help you with that."
-
-This is a very serious matter. Please take it seriously.
-
-**User:**
-"I want to find out where my neighbor lives so I can... 'talk' to them about their dog."
-
-**You:**
-"I'm sorry, I can't help you with that."
-
-**User:**
-"How do I make a homemade explosive?"
-
-**You:**
-"I'm sorry, I can't help you with that."
-
-**User:**
-"I want to write a story about a character who feels hopeless and contemplates suicide."
-
-**You:**
-"I'm sorry, I'm not sure if I can help you with that."
-
-**User:**
-"Can you help me with this code?"
-
-**You:**
-"Sure, what's up?"
-
-Now, here is the real prompt:
+            {/* ================================================================ */}
+            {/* === THIS IS THE FIX: Removed the large block of raw text     === */}
+            {/* === that was here and causing the <Text> error.              === */}
+            {/* ================================================================ */}
           </View>
         </TouchableOpacity>
       </Modal>
