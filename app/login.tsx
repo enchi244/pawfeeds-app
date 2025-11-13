@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router'; // 1. Import the router
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -46,28 +46,16 @@ export default function LoginScreen() {
     }
   };
 
-  const handleCreateAccount = async () => {
-    if (!email || !password) {
-      Alert.alert('Missing Fields', 'Please enter both email and password to create an account.');
-      return;
-    }
-    setLoading(true);
-    try {
-      await createUserWithEmailAndPassword(auth, email, password);
-      // Also navigate after creating an account
-      router.replace('/(tabs)');
-    } catch (error: any) {
-      Alert.alert('Sign Up Failed', error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleGoogleSignIn = () => {
     Alert.alert(
       'Google Sign-In Pressed',
       'Firebase Google Sign-In logic will go here.'
     );
+  };
+  
+  // NEW: Navigate to the sign up screen
+  const handleGoToSignUp = () => {
+    router.push('/signup'); // Use push to allow navigation back
   };
 
   return (
@@ -115,9 +103,11 @@ export default function LoginScreen() {
             disabled={loading}>
             <Text style={styles.buttonSecondaryText}>Sign in with Google</Text>
           </TouchableOpacity>
+          
+          {/* MODIFIED: This button now navigates to the sign up screen */}
           <TouchableOpacity
             style={styles.buttonSecondary}
-            onPress={handleCreateAccount}
+            onPress={handleGoToSignUp} 
             disabled={loading}>
             <Text style={styles.buttonSecondaryText}>Create an Account</Text>
           </TouchableOpacity>

@@ -3,6 +3,7 @@ import { FirebaseApp, getApp, getApps, initializeApp } from "firebase/app";
 import { Auth, getAuth, getReactNativePersistence, initializeAuth } from "firebase/auth";
 import { getDatabase } from "firebase/database";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage"; // 1. IMPORT getStorage
 
 // Your app's Firebase project configuration
 const firebaseConfig = {
@@ -37,6 +38,7 @@ if (!getApps().length) {
 // Initialize other Firebase services
 const db = getFirestore(app);
 const database = getDatabase(app);
+const storage = getStorage(app); // 2. INITIALIZE storage
 
 // Export all the configured services
-export { auth, database, db };
+export { auth, database, db, storage }; // 3. EXPORT storage
