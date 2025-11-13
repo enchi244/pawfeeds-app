@@ -64,8 +64,9 @@
         "origin": false
       },
       "eas": {
-        "projectId": "1b09b532-3580-4573-b26a-5431b090252b"
+        "projectId": "df2729c3-9407-45e2-8ed0-4770d79c3cda"
       }
-    }
+    },
+    "owner": "xepharus"
   }
 }
