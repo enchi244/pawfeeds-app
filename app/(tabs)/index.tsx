@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { Audio } from 'expo-av'; // We still need this for setAudioModeAsync
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
@@ -298,21 +299,34 @@ export default function DashboardScreen() {
   const handleMenu = () => setIsMenuVisible(true);
   const handleMenuClose = () => setIsMenuVisible(false);
 
-  const handleLogout = () => {
-    handleMenuClose();
-    Alert.alert("Logout", "Are you sure you want to log out?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Logout", style: "destructive", onPress: async () => {
-        try {
-            await signOut(auth);
-            router.replace('/login');
-        } catch (error) {
-            console.error("Logout Error:", error);
-            Alert.alert("Logout Failed", "An error occurred while logging out.");
-        }
-      }},
-    ]);
-  };
+// ... other imports (Alert, router, auth, signOut)
+
+const handleLogout = () => {
+  handleMenuClose();
+  Alert.alert("Logout", "Are you sure you want to log out?", [
+    { text: "Cancel", style: "cancel" },
+    { 
+      text: "Logout", 
+      style: "destructive", 
+      onPress: async () => {
+        try {
+          // 2. Add this line: Signs out of the native Google module
+          await GoogleSignin.signOut();
+          
+          // 3. Keep this line: Signs out of Firebase
+          await signOut(auth);
+
+          // 4. Remove this line: The _layout.tsx will handle the redirect
+          // router.replace('/login'); 
+
+        } catch (error) {
+          console.error("Logout Error:", error);
+          Alert.alert("Logout Failed", "An error occurred while logging out.");
+        }
+      }
+    },
+  ]);
+};
 
   const handleResetDevice = () => {
     handleMenuClose();
