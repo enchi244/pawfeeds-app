@@ -1,8 +1,6 @@
-// enchi244/pawfeeds-app/pawfeeds-app-67639f9c704304a88b300ab379913fec52cb96bb/app/login.tsx
 import { useRouter } from 'expo-router';
-// 1. IMPORT THE NEW MODULES
 import { GoogleAuthProvider, signInWithCredential, signInWithEmailAndPassword } from 'firebase/auth';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,13 +12,13 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-// 2. IMPORT expo-auth-session
-import * as Google from 'expo-auth-session/providers/google';
-import * as WebBrowser from 'expo-web-browser';
 import { auth } from '../firebaseConfig'; // Your existing firebase config
 
-// 3. This completes the auth-flow in a web-browser
-WebBrowser.maybeCompleteAuthSession();
+// 1. IMPORT THE NEW MODULES
+import {
+  GoogleSignin,
+  statusCodes,
+} from '@react-native-google-signin/google-signin';
 
 const COLORS = {
   primary: '#8C6E63',
@@ -31,6 +29,12 @@ const COLORS = {
   white: '#FFFFFF',
 };
 
+// 2. CONFIGURE GOOGLE SIGN-IN
+// We only need the webClientId here, which is used to verify the ID token
+GoogleSignin.configure({
+  webClientId: '847280230673-unso54fvd6etf0cuihmjb56q2j1eol09.apps.googleusercontent.com',
+});
+
 export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
@@ -38,40 +42,39 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false); // Loading state for Google
 
-  // 4. SETUP THE GOOGLE AUTH REQUEST HOOK
-  // Replace these with the IDs you got in Step 2!
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    webClientId: '847280230673-unso54fvd6etf0cuihmjb56q2j1eol09.apps.googleusercontent.com',
-    androidClientId: '847280230673-7q2sed7dlea9j9vh97rvib4reg0un3g4.apps.googleusercontent.com',
-  });
+  // 3. THIS IS THE NEW NATIVE GOOGLE SIGN-IN FUNCTION
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    try {
+      // Check if Play Services are available (required for Android)
+      await GoogleSignin.hasPlayServices();
 
-  // 5. ADD A useEffect TO HANDLE THE RESPONSE FROM THE HOOK
-  useEffect(() => {
-    if (response?.type === 'success') {
-      setGoogleLoading(true);
-      const { id_token } = response.params;
-      
+      // Get the user's ID token (this triggers the native modal)
+      const { idToken } = await GoogleSignin.signIn();
+
       // Create a Firebase credential with the Google ID token
-      const credential = GoogleAuthProvider.credential(id_token);
+      const googleCredential = GoogleAuthProvider.credential(idToken);
+
+      // Sign-in to Firebase with the credential
+      await signInWithCredential(auth, googleCredential);
       
-      // Sign in to Firebase with the credential
-      signInWithCredential(auth, credential)
-        .then(() => {
-          // On success, the AuthContext will see the new user
-          // and the router will redirect automatically.
-          // We don't need router.replace() here.
-        })
-        .catch((error) => {
-          Alert.alert('Google Sign-In Failed', error.message);
-        })
-        .finally(() => {
-          setGoogleLoading(false);
-        });
-    } else if (response?.type === 'error') {
-      Alert.alert('Google Sign-In Error', response.error?.message || 'Something went wrong.');
+      // AuthContext should handle the redirect now
+      // router.replace('/(tabs)');
+
+    } catch (error: any) {
+      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
+        Alert.alert('Login Canceled', 'You canceled the login flow.');
+      } else if (error.code === statusCodes.IN_PROGRESS) {
+        Alert.alert('In Progress', 'Sign in is already in progress.');
+      } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        Alert.alert('Error', 'Google Play Services not available or outdated.');
+      } else {
+        Alert.alert('Login Failed', error.message);
+      }
+    } finally {
       setGoogleLoading(false);
     }
-  }, [response]);
+  };
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -80,10 +83,7 @@ export default function LoginScreen() {
     }
     setLoading(true);
     try {
-      // Note: signInWithEmailAndPassword is unchanged
       await signInWithEmailAndPassword(auth, email, password);
-      // AuthContext will handle the redirect, but we'll leave this
-      // as a fallback just in case.
       router.replace('/(tabs)');
     } catch (error: any) {
       Alert.alert('Login Failed', error.message);
@@ -92,15 +92,6 @@ export default function LoginScreen() {
     }
   };
 
-  // 6. UPDATE handleGoogleSignIn
-  const handleGoogleSignIn = () => {
-    // Check if a prompt is already in progress
-    if (googleLoading || !request) {
-      return;
-    }
-    promptAsync(); // This opens the Google Sign-In prompt
-  };
-  
   const handleGoToSignUp = () => {
     router.push('/signup');
   };
@@ -118,14 +109,14 @@ export default function LoginScreen() {
           <TextInput
             style={styles.input}
             placeholder="Email Address"
-            // ... (rest of props)
+            autoCapitalize="none"
+            keyboardType="email-address"
             value={email}
             onChangeText={setEmail}
           />
           <TextInput
             style={styles.input}
             placeholder="Password"
-            // ... (rest of props)
             secureTextEntry
             value={password}
             onChangeText={setPassword}
@@ -142,7 +133,7 @@ export default function LoginScreen() {
         <Text style={styles.dividerText}>OR</Text>
 
         <View style={styles.actions}>
-          {/* 7. UPDATE GOOGLE SIGN-IN BUTTON */}
+          {/* This button now calls the new native function */}
           <TouchableOpacity
             style={styles.buttonSecondary}
             onPress={handleGoogleSignIn}
@@ -166,6 +157,7 @@ export default function LoginScreen() {
   );
 }
 
+// STYLES (Unchanged)
 const styles = StyleSheet.create({
   container: {
     flex: 1,

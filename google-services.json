@@ -23,6 +23,14 @@
           }
         },
         {
+          "client_id": "847280230673-l9khp678tgnrvvlpbiscrca95t1o0gvb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.enchi244.pawfeedsapp",
+            "certificate_hash": "0d19a388d97c8778b89500fcbc320eb256593d4b"
+          }
+        },
+        {
           "client_id": "847280230673-unso54fvd6etf0cuihmjb56q2j1eol09.apps.googleusercontent.com",
           "client_type": 3
         }
