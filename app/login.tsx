@@ -1,6 +1,8 @@
-import { useRouter } from 'expo-router'; // 1. Import the router
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import React, { useState } from 'react';
+// enchi244/pawfeeds-app/pawfeeds-app-67639f9c704304a88b300ab379913fec52cb96bb/app/login.tsx
+import { useRouter } from 'expo-router';
+// 1. IMPORT THE NEW MODULES
+import { GoogleAuthProvider, signInWithCredential, signInWithEmailAndPassword } from 'firebase/auth';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -9,10 +11,16 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { auth } from '../firebaseConfig';
+// 2. IMPORT expo-auth-session
+import * as Google from 'expo-auth-session/providers/google';
+import * as WebBrowser from 'expo-web-browser';
+import { auth } from '../firebaseConfig'; // Your existing firebase config
+
+// 3. This completes the auth-flow in a web-browser
+WebBrowser.maybeCompleteAuthSession();
 
 const COLORS = {
   primary: '#8C6E63',
@@ -24,10 +32,46 @@ const COLORS = {
 };
 
 export default function LoginScreen() {
-  const router = useRouter(); // 2. Initialize the router
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false); // Loading state for Google
+
+  // 4. SETUP THE GOOGLE AUTH REQUEST HOOK
+  // Replace these with the IDs you got in Step 2!
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    webClientId: '847280230673-unso54fvd6etf0cuihmjb56q2j1eol09.apps.googleusercontent.com',
+    androidClientId: '847280230673-7q2sed7dlea9j9vh97rvib4reg0un3g4.apps.googleusercontent.com',
+  });
+
+  // 5. ADD A useEffect TO HANDLE THE RESPONSE FROM THE HOOK
+  useEffect(() => {
+    if (response?.type === 'success') {
+      setGoogleLoading(true);
+      const { id_token } = response.params;
+      
+      // Create a Firebase credential with the Google ID token
+      const credential = GoogleAuthProvider.credential(id_token);
+      
+      // Sign in to Firebase with the credential
+      signInWithCredential(auth, credential)
+        .then(() => {
+          // On success, the AuthContext will see the new user
+          // and the router will redirect automatically.
+          // We don't need router.replace() here.
+        })
+        .catch((error) => {
+          Alert.alert('Google Sign-In Failed', error.message);
+        })
+        .finally(() => {
+          setGoogleLoading(false);
+        });
+    } else if (response?.type === 'error') {
+      Alert.alert('Google Sign-In Error', response.error?.message || 'Something went wrong.');
+      setGoogleLoading(false);
+    }
+  }, [response]);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -36,8 +80,10 @@ export default function LoginScreen() {
     }
     setLoading(true);
     try {
+      // Note: signInWithEmailAndPassword is unchanged
       await signInWithEmailAndPassword(auth, email, password);
-      // 3. Manually navigate on success. This is the fix.
+      // AuthContext will handle the redirect, but we'll leave this
+      // as a fallback just in case.
       router.replace('/(tabs)');
     } catch (error: any) {
       Alert.alert('Login Failed', error.message);
@@ -46,16 +92,17 @@ export default function LoginScreen() {
     }
   };
 
+  // 6. UPDATE handleGoogleSignIn
   const handleGoogleSignIn = () => {
-    Alert.alert(
-      'Google Sign-In Pressed',
-      'Firebase Google Sign-In logic will go here.'
-    );
+    // Check if a prompt is already in progress
+    if (googleLoading || !request) {
+      return;
+    }
+    promptAsync(); // This opens the Google Sign-In prompt
   };
   
-  // NEW: Navigate to the sign up screen
   const handleGoToSignUp = () => {
-    router.push('/signup'); // Use push to allow navigation back
+    router.push('/signup');
   };
 
   return (
@@ -71,21 +118,19 @@ export default function LoginScreen() {
           <TextInput
             style={styles.input}
             placeholder="Email Address"
-            placeholderTextColor="#999"
-            keyboardType="email-address"
-            autoCapitalize="none"
+            // ... (rest of props)
             value={email}
             onChangeText={setEmail}
           />
           <TextInput
             style={styles.input}
             placeholder="Password"
-            placeholderTextColor="#999"
+            // ... (rest of props)
             secureTextEntry
             value={password}
             onChangeText={setPassword}
           />
-          <TouchableOpacity style={styles.buttonPrimary} onPress={handleLogin} disabled={loading}>
+          <TouchableOpacity style={styles.buttonPrimary} onPress={handleLogin} disabled={loading || googleLoading}>
             {loading ? (
               <ActivityIndicator color={COLORS.text} />
             ) : (
@@ -97,18 +142,22 @@ export default function LoginScreen() {
         <Text style={styles.dividerText}>OR</Text>
 
         <View style={styles.actions}>
+          {/* 7. UPDATE GOOGLE SIGN-IN BUTTON */}
           <TouchableOpacity
             style={styles.buttonSecondary}
             onPress={handleGoogleSignIn}
-            disabled={loading}>
-            <Text style={styles.buttonSecondaryText}>Sign in with Google</Text>
+            disabled={loading || googleLoading}>
+            {googleLoading ? (
+              <ActivityIndicator color={COLORS.text} />
+            ) : (
+              <Text style={styles.buttonSecondaryText}>Sign in with Google</Text>
+            )}
           </TouchableOpacity>
           
-          {/* MODIFIED: This button now navigates to the sign up screen */}
           <TouchableOpacity
             style={styles.buttonSecondary}
             onPress={handleGoToSignUp} 
-            disabled={loading}>
+            disabled={loading || googleLoading}>
             <Text style={styles.buttonSecondaryText}>Create an Account</Text>
           </TouchableOpacity>
         </View>
