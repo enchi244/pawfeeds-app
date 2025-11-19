@@ -38,6 +38,14 @@ export default function GetStartedScreen() {
         >
           <Text style={styles.buttonText}>Get Started</Text>
         </TouchableOpacity>
+
+        {/* MODIFIED: Added Cancel button to return to dashboard */}
+        <TouchableOpacity
+          style={styles.secondaryButton}
+          onPress={() => router.replace('/(tabs)')}
+        >
+          <Text style={styles.secondaryButtonText}>Cancel</Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -98,5 +106,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     color: COLORS.text,
+  },
+  // Added styles for the Cancel button
+  secondaryButton: {
+    marginTop: 16,
+    paddingVertical: 12,
+    width: '100%',
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '600',
   },
 });

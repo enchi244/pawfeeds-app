@@ -4,6 +4,7 @@ import { collection, getDocs, onSnapshot, query, Unsubscribe, where } from 'fire
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   ListRenderItem,
@@ -29,6 +30,7 @@ interface Pet {
   id: string;
   name: string;
   photoUrl: string;
+  bowlNumber?: number;
 }
 
 export default function PetsScreen() {
@@ -57,7 +59,10 @@ export default function PetsScreen() {
           const petsCollectionRef = collection(db, 'feeders', feederId, 'pets');
           
           unsubscribe = onSnapshot(petsCollectionRef, (snapshot) => {
-            const petsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Pet));
+            const petsData = snapshot.docs.map(doc => ({ 
+              id: doc.id, 
+              ...doc.data() 
+            } as Pet));
             setPets(petsData);
             setLoading(false);
           });
@@ -76,6 +81,16 @@ export default function PetsScreen() {
   }, [user]);
 
   const handleAddPet = () => {
+    // --- FIX: Prevent adding pet if both bowls are assigned ---
+    const occupiedBowls = new Set(pets.map(p => p.bowlNumber));
+    if (occupiedBowls.has(1) && occupiedBowls.has(2)) {
+      Alert.alert(
+        "Maximum Pets Reached",
+        "Both Bowl 1 and Bowl 2 are currently assigned. You must delete a pet before adding a new one."
+      );
+      return;
+    }
+
     router.push({
       pathname: "/pet/[id]",
       params: { id: 'new' }
@@ -91,8 +106,22 @@ export default function PetsScreen() {
 
   const renderPetItem: ListRenderItem<Pet> = ({ item }) => (
     <TouchableOpacity style={styles.petItem} onPress={() => handleEditPet(item.id)}>
-      <Image source={{ uri: item.photoUrl }} style={styles.petPhoto} />
-      <Text style={styles.petName}>{item.name}</Text>
+      {/* --- FIX: Fallback for missing/failed images --- */}
+      {item.photoUrl ? (
+        <Image source={{ uri: item.photoUrl }} style={styles.petPhoto} />
+      ) : (
+        <View style={[styles.petPhoto, styles.petPhotoPlaceholder]}>
+          <MaterialCommunityIcons name="dog" size={36} color={COLORS.white} />
+        </View>
+      )}
+      {/* --- END FIX --- */}
+      
+      <View>
+        <Text style={styles.petName}>{item.name}</Text>
+        {item.bowlNumber && (
+           <Text style={styles.petSubText}>Assigned to Bowl {item.bowlNumber}</Text>
+        )}
+      </View>
     </TouchableOpacity>
   );
 
@@ -133,7 +162,10 @@ const styles = StyleSheet.create({
   listContainer: { padding: 20 },
   petItem: { backgroundColor: COLORS.white, borderRadius: 12, padding: 16, flexDirection: 'row', alignItems: 'center', marginBottom: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
   petPhoto: { width: 60, height: 60, borderRadius: 30, marginRight: 16, backgroundColor: COLORS.lightGray },
+  // Added placeholder style
+  petPhotoPlaceholder: { backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center' },
   petName: { fontSize: 18, fontWeight: '600', color: COLORS.text },
+  petSubText: { fontSize: 14, color: '#666', marginTop: 4 },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
   emptyText: { fontSize: 20, fontWeight: 'bold', color: '#aaa', marginTop: 16 },
   emptySubText: { fontSize: 16, color: '#bbb', marginTop: 8, textAlign: 'center' },
