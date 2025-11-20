@@ -48,6 +48,8 @@ const COLORS = {
   lightGray: '#E0E0E0',
   white: '#FFFFFF',
   danger: '#D32F2F',
+  info: '#2196F3', // Blue for info
+  warning: '#FF9800' // Orange for warning
 };
 
 interface DogBreed {
@@ -99,6 +101,38 @@ const estimatePuppyWeight = (adultWeight: number, months: number): number => {
   return Math.round(adultWeight * factor * 10) / 10;
 };
 
+// --- Age Calculation Helper ---
+const getAgeString = (birthDate: Date | null) => {
+  if (!birthDate) return null;
+  
+  const today = new Date();
+  let years = today.getFullYear() - birthDate.getFullYear();
+  let months = today.getMonth() - birthDate.getMonth();
+  let days = today.getDate() - birthDate.getDate();
+
+  // Adjust for negative days
+  if (days < 0) {
+    months--;
+    const prevMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+    days += prevMonth.getDate();
+  }
+  
+  // Adjust for negative months
+  if (months < 0) {
+    years--;
+    months += 12;
+  }
+
+  if (years < 0) return "Not born yet";
+
+  if (years > 0) {
+     return `${years}y ${months}m old`;
+  } else {
+     if (months === 0) return `${days}d old`;
+     return `${months}m ${days}d old`;
+  }
+};
+
 export default function PetProfileScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -113,6 +147,9 @@ export default function PetProfileScreen() {
   const [activityLevel, setActivityLevel] = useState('Normal');
   const [recommendedPortion, setRecommendedPortion] = useState(0);
   const [feederId, setFeederId] = useState<string | null>(null);
+
+  // --- New State for Weight Insight ---
+  const [idealPortion, setIdealPortion] = useState<number | null>(null);
 
   const [birthday, setBirthday] = useState<Date | null>(null);
   const [ageInMonths, setAgeInMonths] = useState<number | null>(null);
@@ -205,7 +242,7 @@ export default function PetProfileScreen() {
     fetchPetData();
   }, [id, isEditing, feederId]);
 
-  // Fetch Dog Breeds
+  // Fetch Dog Breeds & Sort
   useEffect(() => {
     const fetchBreeds = async () => {
       try {
@@ -216,6 +253,15 @@ export default function PetProfileScreen() {
           id: doc.id,
           ...doc.data()
         } as DogBreed));
+
+        // Sort: Size First, then Name
+        const sizeOrder: { [key: string]: number } = { 'Small': 1, 'Medium': 2, 'Large': 3 };
+        breedsData.sort((a, b) => {
+            const sizeDiff = sizeOrder[a.size] - sizeOrder[b.size];
+            if (sizeDiff !== 0) return sizeDiff;
+            return a.name.localeCompare(b.name);
+        });
+
         setBreeds(breedsData);
       } catch (error) {
         console.error("Error fetching breeds:", error);
@@ -298,52 +344,75 @@ export default function PetProfileScreen() {
     };
   }, [isScanning, feederId, scanTargetBowl]);
 
-  // ---------------------------------------------------------
-  // LOGIC FIX 2 (UPDATED): Granular Age + Activity Portions
-  // ---------------------------------------------------------
+  // Granular Age + Activity Portions + Diet Insight
   useEffect(() => {
     const calculatePortion = () => {
       const weightKg = parseFloat(weight);
       const foodKcal = parseFloat(kcal);
+      
+      // Basic Validation
       if (isNaN(weightKg) || weightKg <= 0 || isNaN(foodKcal) || foodKcal <= 0 || ageInMonths === null || ageInMonths < 0) {
         setRecommendedPortion(0);
+        setIdealPortion(null);
         return;
       }
-      const rer = 70 * Math.pow(weightKg, 0.75);
-      let merFactor;
 
-      // --- Updated Logic with Activity Level ---
-      if (ageInMonths < 4) {
-        // Rapid Growth (Base ~3.0)
-        if (activityLevel === 'Low') merFactor = 2.8;
-        else if (activityLevel === 'High') merFactor = 3.2;
-        else merFactor = 3.0; 
-      } 
-      else if (ageInMonths < 12) {
-        // Adolescent Growth (Base ~2.0)
-        if (activityLevel === 'Low') merFactor = 1.8;
-        else if (activityLevel === 'High') merFactor = 2.2;
-        else merFactor = 2.0;
-      } 
-      else {
-        // Adult Phase
-        merFactor = 1.6; 
-        if (neuterStatus === 'Neutered/Spayed') {
-          if (activityLevel === 'Low') merFactor = 1.4;
-          if (activityLevel === 'High') merFactor = 1.8;
-        } else {
-          if (activityLevel === 'Low') merFactor = 1.4;
-          if (activityLevel === 'Normal') merFactor = 1.8;
-          if (activityLevel === 'High') merFactor = 3.0; 
+      // 1. Helper to calculate grams
+      const getGramsForWeight = (targetWeight: number) => {
+        const rer = 70 * Math.pow(targetWeight, 0.75);
+        let merFactor;
+
+        if (ageInMonths < 4) {
+            // Rapid Growth
+            if (activityLevel === 'Low') merFactor = 2.8;
+            else if (activityLevel === 'High') merFactor = 3.2;
+            else merFactor = 3.0; 
+        } 
+        else if (ageInMonths < 12) {
+            // Adolescent Growth
+            if (activityLevel === 'Low') merFactor = 1.8;
+            else if (activityLevel === 'High') merFactor = 2.2;
+            else merFactor = 2.0;
+        } 
+        else {
+            // Adult Phase
+            merFactor = 1.6; 
+            if (neuterStatus === 'Neutered/Spayed') {
+                if (activityLevel === 'Low') merFactor = 1.4;
+                if (activityLevel === 'High') merFactor = 1.8;
+            } else {
+                if (activityLevel === 'Low') merFactor = 1.4;
+                if (activityLevel === 'Normal') merFactor = 1.8;
+                if (activityLevel === 'High') merFactor = 3.0; 
+            }
         }
-      }
+        
+        const mer = rer * merFactor;
+        return Math.round((mer / foodKcal) * 100);
+      };
 
-      const mer = rer * merFactor;
-      const dailyGrams = (mer / foodKcal) * 100;
-      setRecommendedPortion(Math.round(dailyGrams));
+      // 2. Calculate for CURRENT Input
+      const currentGrams = getGramsForWeight(weightKg);
+      setRecommendedPortion(currentGrams);
+
+      // 3. Calculate for IDEAL Breed Weight (Adults only)
+      if (ageInMonths >= 12 && selectedBreedId && breeds.length > 0) {
+        const preset = breeds.find(b => b.id === selectedBreedId);
+        if (preset && preset.defaultWeight) {
+           // Trigger insight if current weight is > 15% over average
+           if (weightKg > preset.defaultWeight * 1.15) {
+              const idealGrams = getGramsForWeight(preset.defaultWeight);
+              setIdealPortion(idealGrams);
+           } else {
+              setIdealPortion(null);
+           }
+        }
+      } else {
+        setIdealPortion(null);
+      }
     };
     calculatePortion();
-  }, [weight, kcal, neuterStatus, activityLevel, ageInMonths]);
+  }, [weight, kcal, neuterStatus, activityLevel, ageInMonths, selectedBreedId, breeds]);
 
 
   // Scan Handler
@@ -651,10 +720,33 @@ export default function PetProfileScreen() {
                 {birthday ? birthday.toLocaleDateString() : "Select date..."}
               </Text>
             </TouchableOpacity>
+            {/* --- NEW: Birthday/Age Helper --- */}
+            {birthday && (
+              <View style={styles.infoContainer}>
+                <MaterialCommunityIcons name="calendar-clock" size={16} color={COLORS.info} />
+                <Text style={[styles.helperText, { color: COLORS.info }]}>
+                  {` ${getAgeString(birthday)}`}
+                </Text>
+              </View>
+            )}
           </View>
           <View style={styles.column}>
             <Text style={styles.label}>Weight (kg)</Text>
             <TextInput style={styles.input} value={weight} onChangeText={setWeight} placeholder="e.g., 15" keyboardType="numeric" />
+            
+            <View style={styles.infoContainer}>
+                <MaterialCommunityIcons 
+                    name={ageInMonths !== null && ageInMonths < 12 ? "alert-circle-outline" : "scale"} 
+                    size={16} 
+                    color={ageInMonths !== null && ageInMonths < 12 ? COLORS.warning : COLORS.text} 
+                />
+                <Text style={[styles.helperText, ageInMonths !== null && ageInMonths < 12 && { color: COLORS.warning, fontWeight: 'bold' }]}>
+                    {ageInMonths !== null && ageInMonths < 12 
+                        ? " Estimated based on age. Please verify!" 
+                        : " Enter current weight"
+                    }
+                </Text>
+            </View>
           </View>
         </View>
 
@@ -678,6 +770,11 @@ export default function PetProfileScreen() {
           placeholder="Check your dog food bag" 
           keyboardType="numeric" 
         />
+        
+        <View style={styles.infoContainer}>
+             <MaterialCommunityIcons name="information-outline" size={16} color={COLORS.info} />
+             <Text style={[styles.helperText, {color: COLORS.info}]}> Check the label on your food bag</Text>
+        </View>
 
         <Text style={styles.label}>Sex / Neuter Status</Text>
         <SegmentedControl 
@@ -739,6 +836,23 @@ export default function PetProfileScreen() {
               : "Based on adult maintenance formula."
             }
           </Text>
+
+          {/* --- NEW: Diet Insight / Warning --- */}
+          {idealPortion !== null && (
+            <View style={styles.dietContainer}>
+               <View style={styles.dietHeader}>
+                 <MaterialCommunityIcons name="scale-bathroom" size={20} color={COLORS.warning} />
+                 <Text style={styles.dietTitle}>Weight Management Insight</Text>
+               </View>
+               <Text style={styles.dietText}>
+                 Your entered weight ({weight}kg) is higher than the breed average.
+               </Text>
+               <Text style={styles.dietText}>
+                 If your goal is weight loss, consider feeding for the ideal weight:
+               </Text>
+               <Text style={styles.dietValue}>{idealPortion}g / day</Text>
+            </View>
+          )}
         </View>
 
         <TouchableOpacity 
@@ -829,5 +943,49 @@ const styles = StyleSheet.create({
     dateText: {
       fontSize: 16,
       color: COLORS.text
-    }
+    },
+    // --- NEW HELPER STYLES ---
+    infoContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 6,
+    },
+    helperText: {
+        fontSize: 12,
+        color: '#666',
+        marginLeft: 4,
+        fontStyle: 'italic'
+    },
+    // --- Diet Card Styles ---
+    dietContainer: {
+        marginTop: 16,
+        paddingTop: 16,
+        borderTopWidth: 1,
+        borderTopColor: COLORS.lightGray,
+        width: '100%',
+        alignItems: 'center',
+    },
+    dietHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 8,
+        gap: 6,
+    },
+    dietTitle: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: COLORS.warning,
+    },
+    dietText: {
+        fontSize: 13,
+        color: '#666',
+        textAlign: 'center',
+        marginBottom: 4,
+    },
+    dietValue: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: COLORS.primary,
+        marginTop: 4,
+    },
 });
