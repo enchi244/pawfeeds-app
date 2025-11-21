@@ -1,16 +1,15 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
-import { Audio } from 'expo-av'; // We still need this for setAudioModeAsync
+import { Audio } from 'expo-av';
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
-import { getDatabase, ref, serverTimestamp as rtdbServerTimestamp, set } from 'firebase/database';
+import { getDatabase, onValue, ref, serverTimestamp as rtdbServerTimestamp, set } from 'firebase/database';
 import { addDoc, collection, deleteDoc, doc, serverTimestamp as firestoreServerTimestamp, getDocs, onSnapshot, query, Unsubscribe, where } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Dimensions,
-  FlatList,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -22,9 +21,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-// ==========================================================
-// === THIS IS THE CHANGE: Import the new VLC player        ===
-// ==========================================================
 import { VLCPlayer } from 'react-native-vlc-media-player';
 import { useAuth } from '../../context/AuthContext';
 import { auth, db } from '../../firebaseConfig';
@@ -38,25 +34,26 @@ const COLORS = {
   white: '#FFFFFF',
   danger: '#D32F2F',
   overlay: 'rgba(0, 0, 0, 0.5)',
+  offline: '#9E9E9E',
 };
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
 
-// --- Interfaces for our data models ---
+// --- Interfaces ---
 interface Pet {
-    id: string;
-    name: string;
-    recommendedPortion: number;
+  id: string;
+  name: string;
+  recommendedPortion: number;
 }
 
 interface Schedule {
-    id: string;
-    petId: string;
-    petName: string;
-    time: string;
-    bowlNumber: number;
-    isEnabled: boolean;
+  id: string;
+  petId: string;
+  petName: string;
+  time: string;
+  bowlNumber: number;
+  isEnabled: boolean;
 }
 
 interface BowlCardProps {
@@ -65,19 +62,25 @@ interface BowlCardProps {
   foodLevel: number;
   perMealPortion: number;
   onPressFeed: () => void;
-  onPressFilter: () => void;
   streamUri: string | null;
   isActive: boolean;
+  isFeederOnline: boolean;
 }
 
-const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel, perMealPortion, onPressFeed, onPressFilter, streamUri, isActive }) => {
+const BowlCard: React.FC<BowlCardProps> = ({ 
+  bowlNumber, 
+  selectedPet, 
+  foodLevel, 
+  perMealPortion, 
+  onPressFeed, 
+  streamUri, 
+  isActive,
+  isFeederOnline 
+}) => {
+    // If no pet is assigned via schedule, it is unassigned
     const isUnassigned = !selectedPet;
-    
-    // We can remove the old VideoRef and showBuffering state
-    // const videoRef = useRef<VideoRef>(null);
-    // const [showBuffering, setShowBuffering] = useState(true);
+    const isFeedDisabled = isUnassigned || !isFeederOnline;
 
-    // This useEffect can stay, to ensure audio is correctly configured
     useEffect(() => {
         const setAudio = async () => {
             await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
@@ -86,7 +89,6 @@ const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel,
     }, []);
 
     const handleError = (error: any) => {
-        // Only log errors for the active card
         if (isActive) {
           console.error(`[VLC Player Bowl ${bowlNumber}] Playback Error:`, error);
         }
@@ -95,29 +97,27 @@ const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel,
     return (
       <View style={[styles.card, { width: CARD_WIDTH }]}>
         <View style={styles.cardHeader}>
-          <TouchableOpacity onPress={onPressFilter} style={styles.cardTitleContainer}>
-              <Text style={[styles.cardTitle, isUnassigned && { color: '#999' }]}>{`Bowl ${bowlNumber} - ${selectedPet?.name || 'No Pet Scheduled'}`}</Text>
-              <MaterialCommunityIcons name="chevron-down" size={24} color={COLORS.text} />
-          </TouchableOpacity>
-          <View style={styles.onlineIndicator} />
+          {/* REMOVED: TouchableOpacity and Chevron. Now just static text. */}
+          <View style={styles.cardTitleContainer}>
+              <Text style={[styles.cardTitle, isUnassigned && { color: '#999' }]}>
+                {`Bowl ${bowlNumber} - ${selectedPet?.name || 'No Pet Assigned'}`}
+              </Text>
+          </View>
+          <View style={[styles.onlineIndicator, { backgroundColor: isFeederOnline ? '#4CAF50' : COLORS.offline }]} />
         </View>
+
         <View style={styles.videoFeedPlaceholder}>
           {streamUri ? (
             <>
-              {/* ================================================================ */}
-              {/* === THIS IS THE FIX: Only render the <VlCPlayer> component   === */}
-              {/* === if the card is active.                                   === */}
-              {/* ================================================================ */}
               {isActive && (
                 <VLCPlayer
                   style={styles.video}
                   source={{ uri: streamUri }}
                   resizeMode="cover"
                   muted={true}
-                  paused={false} // It's only rendered if active, so it should never be paused
+                  paused={false}
                   onError={handleError}
-                  videoAspectRatio={`${16}:${9}`} // You might need to adjust this
-                  // The VLC player has its own internal loading spinner
+                  videoAspectRatio={`${16}:${9}`}
                 />
               )}
             </>
@@ -128,6 +128,7 @@ const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel,
             </View>
           )}
         </View>
+
         <View style={styles.statusContainer}>
           <Text style={styles.statusLabel}>Food Level</Text>
           <View style={styles.progressBarBackground}>
@@ -135,9 +136,17 @@ const BowlCard: React.FC<BowlCardProps> = ({ bowlNumber, selectedPet, foodLevel,
           </View>
           <Text style={styles.statusPercentage}>{foodLevel}%</Text>
         </View>
-        <TouchableOpacity style={[styles.feedButton, isUnassigned && styles.disabledButton]} onPress={onPressFeed} disabled={isUnassigned}>
-          <Text style={styles.feedButtonText}>Feed Now</Text>
+
+        <TouchableOpacity 
+          style={[styles.feedButton, isFeedDisabled && styles.disabledButton]} 
+          onPress={onPressFeed} 
+          disabled={isFeedDisabled}
+        >
+          <Text style={styles.feedButtonText}>
+            {isFeederOnline ? (isUnassigned ? 'No Pet Assigned' : 'Feed Now') : 'Feeder Offline'}
+          </Text>
         </TouchableOpacity>
+
         <Text style={styles.portionText}>
           {`Next meal portion: ${perMealPortion > 0 ? perMealPortion : '--'}g`}
         </Text>
@@ -163,7 +172,8 @@ export default function DashboardScreen() {
   const { user } = useAuth();
   const [activeIndex, setActiveIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-
+  
+  const [isFeederOnline, setIsFeederOnline] = useState(false);
   const [isMenuVisible, setIsMenuVisible] = useState(false);
   const [filters, setFilters] = useState({ bowl1: true, bowl2: true });
 
@@ -171,19 +181,15 @@ export default function DashboardScreen() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
 
   const [isFeedModalVisible, setIsFeedModalVisible] = useState(false);
-  const [isFilterModalVisible, setIsFilterModalVisible] = useState(false);
   const [selectedBowlForAction, setSelectedBowlForAction] = useState<number | null>(null);
   const [customAmount, setCustomAmount] = useState('');
 
   const [isCustomFeedVisible, setIsCustomFeedVisible] = useState(false);
-  const [selectedPetInBowl, setSelectedPetInBowl] = useState<{[bowlId: string]: string | undefined}>({});
 
   const [feederId, setFeederId] = useState<string | null>(null);
   
   const PUBLIC_HLS_SERVER_DOMAIN = 'workspherecbd.site';
   
-  // We use the NON-NESTED URL, as this was the last state we tested
-  // VLC player can handle either, but this is simpler.
   const [streamUris, setStreamUris] = useState<{ [bowlId: string]: string | null }>({
     '1': `https://${PUBLIC_HLS_SERVER_DOMAIN}/hls/stream1.m3u8`,
     '2': `https://${PUBLIC_HLS_SERVER_DOMAIN}/hls/stream2.m3u8`,
@@ -199,6 +205,7 @@ export default function DashboardScreen() {
     }
 
     const unsubscribes: Unsubscribe[] = [];
+    const rtdbUnsubscribes: (() => void)[] = [];
 
     const fetchFeederAndData = async () => {
       const feedersRef = collection(db, 'feeders');
@@ -209,7 +216,7 @@ export default function DashboardScreen() {
         const currentFeederId = querySnapshot.docs[0].id;
         setFeederId(currentFeederId);
 
-        // --- Real-time listener for feeder document ---
+        // Firestore Feeder Data
         const feederDocRef = doc(db, 'feeders', currentFeederId);
         const feederUnsub = onSnapshot(feederDocRef, (doc) => {
             if (doc.exists()) {
@@ -219,12 +226,23 @@ export default function DashboardScreen() {
         });
         unsubscribes.push(feederUnsub);
 
+        // RTDB Presence
+        const rtdb = getDatabase();
+        const statusRef = ref(rtdb, `feeders/${currentFeederId}/status`);
+        const statusUnsub = onValue(statusRef, (snapshot) => {
+            const status = snapshot.val();
+            setIsFeederOnline(status === 'online');
+        });
+        rtdbUnsubscribes.push(() => statusUnsub()); 
+
+        // Pets
         const petsRef = collection(db, 'feeders', currentFeederId, 'pets');
         const petsUnsub = onSnapshot(petsRef, (snapshot) => {
           setPets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Pet)));
         });
         unsubscribes.push(petsUnsub);
 
+        // Schedules
         const schedulesRef = collection(db, 'feeders', currentFeederId, 'schedules');
         const schedulesUnsub = onSnapshot(schedulesRef, (snapshot) => {
           setSchedules(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Schedule)));
@@ -238,49 +256,32 @@ export default function DashboardScreen() {
 
     fetchFeederAndData().catch(console.error);
 
-    return () => unsubscribes.forEach(unsub => unsub());
+    return () => {
+        unsubscribes.forEach(unsub => unsub());
+        rtdbUnsubscribes.forEach(unsub => unsub());
+    };
   }, [user]);
   
-  const petsByBowl = useMemo(() => {
-    const bowlMap: { [bowlId: string]: Pet[] } = {};
-    const addedPetIds: { [bowlId: string]: Set<string> } = {};
-
+  // --- LOGIC CHANGE: Automatically assign pet to bowl based on schedules ---
+  const assignedPetsByBowl = useMemo(() => {
+    const bowlMap: { [bowlId: string]: Pet | undefined } = {};
+    
+    // We assume 1 pet per bowl. We iterate schedules to find the "Owner" of the bowl.
+    // If multiple schedules exist for a bowl, they should (by rule) belong to the same pet.
     schedules.forEach(schedule => {
       if (schedule.isEnabled && schedule.petId && schedule.bowlNumber) {
-        if (!bowlMap[schedule.bowlNumber]) {
-          bowlMap[schedule.bowlNumber] = [];
-          addedPetIds[schedule.bowlNumber] = new Set();
-        }
-
-        const pet = pets.find(p => p.id === schedule.petId);
-        if (pet && !addedPetIds[schedule.bowlNumber].has(pet.id)) {
-          bowlMap[schedule.bowlNumber].push(pet);
-          addedPetIds[schedule.bowlNumber].add(pet.id);
-        }
+         if (!bowlMap[schedule.bowlNumber]) {
+             const pet = pets.find(p => p.id === schedule.petId);
+             if (pet) {
+                 bowlMap[schedule.bowlNumber] = pet;
+             }
+         }
       }
     });
     return bowlMap;
   }, [schedules, pets]);
 
-  useEffect(() => {
-    const newSelections = { ...selectedPetInBowl };
-    let changed = false;
-    bowlsConfig.forEach(bowl => {
-        const petsForBowl = petsByBowl[bowl.id];
-        if (petsForBowl && petsForBowl.length > 0 && !newSelections[bowl.id]) {
-            newSelections[bowl.id] = petsForBowl[0].id;
-            changed = true;
-        }
-        else if ((!petsForBowl || petsForBowl.length === 0) && newSelections[bowl.id]) {
-            delete newSelections[bowl.id];
-            changed = true;
-        }
-    });
-    if (changed) {
-        setSelectedPetInBowl(newSelections);
-    }
-  }, [petsByBowl, bowlsConfig]);
-
+  // Calculate active schedules for portion math
   const activeSchedulesByPetId = useMemo(() => {
     const counts: { [petId: string]: number } = {};
     schedules.forEach(schedule => {
@@ -299,34 +300,25 @@ export default function DashboardScreen() {
   const handleMenu = () => setIsMenuVisible(true);
   const handleMenuClose = () => setIsMenuVisible(false);
 
-// ... other imports (Alert, router, auth, signOut)
-
-const handleLogout = () => {
-  handleMenuClose();
-  Alert.alert("Logout", "Are you sure you want to log out?", [
-    { text: "Cancel", style: "cancel" },
-    { 
-      text: "Logout", 
-      style: "destructive", 
-      onPress: async () => {
-        try {
-          // 2. Add this line: Signs out of the native Google module
-          await GoogleSignin.signOut();
-          
-          // 3. Keep this line: Signs out of Firebase
-          await signOut(auth);
-
-          // 4. Remove this line: The _layout.tsx will handle the redirect
-          // router.replace('/login'); 
-
-        } catch (error) {
-          console.error("Logout Error:", error);
-          Alert.alert("Logout Failed", "An error occurred while logging out.");
-        }
-      }
-    },
-  ]);
-};
+  const handleLogout = () => {
+    handleMenuClose();
+    Alert.alert("Logout", "Are you sure you want to log out?", [
+      { text: "Cancel", style: "cancel" },
+      { 
+        text: "Logout", 
+        style: "destructive", 
+        onPress: async () => {
+          try {
+            await GoogleSignin.signOut();
+            await signOut(auth);
+          } catch (error) {
+            console.error("Logout Error:", error);
+            Alert.alert("Logout Failed", "An error occurred while logging out.");
+          }
+        }
+      },
+    ]);
+  };
 
   const handleResetDevice = () => {
     handleMenuClose();
@@ -389,37 +381,35 @@ const handleLogout = () => {
 
 
   const handleOpenFeedModal = (bowlNumber: number) => {
+    if (!isFeederOnline) {
+        Alert.alert("Feeder Offline", "Cannot dispense food while the feeder is offline.");
+        return;
+    }
+    // Check if a pet is actually assigned
+    if (!assignedPetsByBowl[bowlNumber]) {
+         Alert.alert("No Pet Assigned", "Please schedule a pet to this bowl before using Feed Now.");
+         return;
+    }
+
     setSelectedBowlForAction(bowlNumber);
     setIsCustomFeedVisible(false);
     setCustomAmount('');
     setIsFeedModalVisible(true);
   };
 
-  const handleOpenFilterModal = (bowlNumber: number) => {
-    setSelectedBowlForAction(bowlNumber);
-    setIsFilterModalVisible(true);
-  };
-
-  const handleSelectPetForFilter = (petId: string) => {
-      if (selectedBowlForAction) {
-          setSelectedPetInBowl(prev => ({ ...prev, [selectedBowlForAction]: petId }));
-      }
-      setIsFilterModalVisible(false);
-  };
-
+  // --- REFACTOR: Calculate feed data based on auto-assigned pet ---
   const feedModalData = useMemo(() => {
     if (selectedBowlForAction === null) return null;
-    const petId = selectedPetInBowl[selectedBowlForAction];
-    if (!petId) return null;
-
-    const pet = pets.find(p => p.id === petId);
+    
+    // Get the pet automatically assigned to this bowl
+    const pet = assignedPetsByBowl[selectedBowlForAction];
     if (!pet) return null;
 
     const activeScheduleCount = activeSchedulesByPetId[pet.id] || 0;
     const perMealPortion = (pet.recommendedPortion && activeScheduleCount > 0) ? Math.round(pet.recommendedPortion / activeScheduleCount) : 0;
 
     return { pet, perMealPortion };
-  }, [selectedBowlForAction, selectedPetInBowl, pets, activeSchedulesByPetId]);
+  }, [selectedBowlForAction, assignedPetsByBowl, activeSchedulesByPetId]);
 
 
   const handleDispenseFeed = async (amount: number) => {
@@ -438,7 +428,6 @@ const handleLogout = () => {
       await set(ref(rtdb, commandPath), { command: 'feed', bowl: selectedBowlForAction, amount, timestamp: rtdbServerTimestamp() });
       
       // 2. Write Log to Firestore
-      // We grab the pet name from the feedModalData computed property
       const petName = feedModalData?.pet?.name || 'Manual Override';
       
       await addDoc(collection(db, 'feeders', feederId, 'history'), {
@@ -470,15 +459,16 @@ const handleLogout = () => {
         <TouchableOpacity onPress={handleMenu}><MaterialCommunityIcons name="menu" size={28} color={COLORS.primary} /></TouchableOpacity>
         <Text style={styles.headerTitle}>PawFeeds</Text>
         <TouchableOpacity onPress={() => router.push('/logs')}>
-             <MaterialCommunityIcons name="history" size={28} color={COLORS.primary} />
+              <MaterialCommunityIcons name="history" size={28} color={COLORS.primary} />
         </TouchableOpacity>
       </View>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <View>
           <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16} contentContainerStyle={styles.swiperContainer} decelerationRate="fast" snapToInterval={CARD_WIDTH + 20} snapToAlignment="start">
             {bowlsConfig.map((bowl, index) => {
-                const selectedPetId = selectedPetInBowl[bowl.id];
-                const selectedPet = pets.find(p => p.id === selectedPetId);
+                // Use the auto-assigned pet
+                const selectedPet = assignedPetsByBowl[bowl.id];
+                
                 const activeScheduleCount = selectedPet ? (activeSchedulesByPetId[selectedPet.id] || 0) : 0;
                 const perMealPortion = (selectedPet && selectedPet.recommendedPortion && activeScheduleCount > 0) ? Math.round(selectedPet.recommendedPortion / activeScheduleCount) : 0;
                 
@@ -493,9 +483,9 @@ const handleLogout = () => {
                         foodLevel={foodLevel}
                         perMealPortion={perMealPortion}
                         onPressFeed={() => handleOpenFeedModal(bowl.id)}
-                        onPressFilter={() => handleOpenFilterModal(bowl.id)}
                         streamUri={streamUri}
                         isActive={index === activeIndex}
+                        isFeederOnline={isFeederOnline}
                     />
                 );
             })}
@@ -532,7 +522,6 @@ const handleLogout = () => {
           <View style={styles.menuContainer}>
             <Text style={styles.menuTitle}>Menu</Text>
             <TouchableOpacity style={styles.menuItem} onPress={handleAccountPress}><MaterialCommunityIcons name="account-circle-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Account</Text></TouchableOpacity>
-            {/* MODIFIED: Updates the Add Device menu item to navigate to the provisioning screen */}
             <TouchableOpacity style={styles.menuItem} onPress={() => { handleMenuClose(); router.push('/(provisioning)'); }}><MaterialCommunityIcons name="plus-box-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Add Device</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={handleResetDevice}><MaterialCommunityIcons name="restart" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Reset Device</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('Coming Soon', 'Manual and tutorials will be available here.')}><MaterialCommunityIcons name="book-open-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Manual</Text></TouchableOpacity>
@@ -566,24 +555,7 @@ const handleLogout = () => {
         </TouchableOpacity>
       </Modal>
 
-      {/* Pet Filter Modal */}
-      <Modal visible={isFilterModalVisible} transparent={true} animationType="fade" onRequestClose={() => setIsFilterModalVisible(false)}>
-        <TouchableOpacity style={styles.modalOverlay} onPress={() => setIsFilterModalVisible(false)} activeOpacity={1}>
-            <View style={styles.selectionModalContent}>
-                <Text style={styles.modalTitle}>Select Pet to View</Text>
-                <FlatList
-                    data={petsByBowl[selectedBowlForAction!] || []}
-                    keyExtractor={(item) => item.id}
-                    renderItem={({ item }) => (
-                        <TouchableOpacity style={styles.selectionItem} onPress={() => handleSelectPetForFilter(item.id)}>
-                            <Text style={styles.selectionItemText}>{item.name}</Text>
-                        </TouchableOpacity>
-                    )}
-                    ListEmptyComponent={<Text style={styles.emptyListText}>No pets scheduled for this bowl.</Text>}
-                />
-            </View>
-        </TouchableOpacity>
-      </Modal>
+      {/* Removed "Pet Filter Modal" completely as it's no longer used */}
     </SafeAreaView>
   );
 }
@@ -599,7 +571,7 @@ const styles = StyleSheet.create({
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   cardTitleContainer: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, marginRight: 10 },
   cardTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text, flexShrink: 1 },
-  onlineIndicator: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#4CAF50' },
+  onlineIndicator: { width: 10, height: 10, borderRadius: 5 },
   videoFeedPlaceholder: { height: 180, backgroundColor: '#000000', borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginBottom: 12, overflow: 'hidden' },
   video: { ...StyleSheet.absoluteFillObject },
   videoOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)' },
