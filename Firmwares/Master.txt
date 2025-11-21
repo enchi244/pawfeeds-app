@@ -40,7 +40,6 @@
 #define DISPENSE_MS_PER_GRAM 50
 const char* AP_SSID = "PawFeeds_Setup";
 const char* AP_PASSWORD = NULL;
-
 #define CALIBRATION_FACTOR_1 -7050.0
 #define CALIBRATION_FACTOR_2 -7050.0
 #define MAX_WEIGHT_GRAMS 2000.0
@@ -58,12 +57,13 @@ HX711 loadCellBowl1;
 HX711 loadCellBowl2;
 HardwareSerial SerialRFID1(1);
 HardwareSerial SerialRFID2(2);
-
 String feederId = "";
 String streamPath = "/commands/";
 bool streamActive = false;
 unsigned long lastCmdTimestamp = 0;
 unsigned long lastWeightUpdateTime = 0;
+// --- NEW: Cooldown timer for stream restarts ---
+unsigned long lastStreamRestartAttempt = 0;
 
 // --- RFID State Variables ---
 enum RfidScanMode { IDLE, PAIRING, WAITING };
@@ -75,8 +75,10 @@ int pendingAmount = 0;
 int pairingBowlTarget = 0;
 
 // --- NEW VARIABLES FOR WAITING MODE ---
-String currentScheduleId = ""; // Stores the schedule ID for timeout reporting
-String currentPetId = "";      // Stores the pet ID for timeout reporting
+String currentScheduleId = "";
+// Stores the schedule ID for timeout reporting
+String currentPetId = "";
+// Stores the pet ID for timeout reporting
 
 // --- NEW: Buffers for byte-by-byte serial reading ---
 String rfid1_buffer = "";
@@ -132,6 +134,7 @@ float getWeightAsPercentage(HX711& sensor, int sensorNum);
 void updateRfidBuffers();
 void handleRfidRead(int readerNum, String scannedTagId);
 void checkRfidTimeouts();
+
 void forwardPacketToSlaves(const String& packet, const String& packetType) {
     Serial.printf("[PROVISIONING] Forwarding %s to slave cameras...\n", packetType.c_str());
     Serial.println("[PROVISIONING] Contacting Slave 1...");
@@ -218,13 +221,24 @@ void loop() {
             registerDeviceWithFirestore();
             break;
         case OPERATIONAL:
+            // --- UPDATED STREAM LOGIC WITH COOLDOWN ---
             if (!streamActive) {
-                startRTDBStream();
+                // Wait 2000ms before trying to restart stream to let socket close clean
+                if (millis() - lastStreamRestartAttempt > 2000) {
+                    startRTDBStream();
+                    lastStreamRestartAttempt = millis();
+                }
+            } else {
+                // Only try to read if stream thinks it is active
+                if (!Firebase.RTDB.readStream(&stream_fbdo)) {
+                    Serial.println("[ERROR] Stream read error! Marking stream as inactive.");
+                    Serial.println(stream_fbdo.errorReason());
+                    streamActive = false;
+                    // Ensure the object is cleared so we get a fresh SSL connection next time
+                    stream_fbdo.clear(); 
+                }
             }
-            if (Firebase.ready() && !Firebase.RTDB.readStream(&stream_fbdo)) {
-                Serial.println("[ERROR] Stream read error!");
-                streamActive = false;
-            }
+
             if (newCommandAvailable) {
                 processPendingCommand();
                 newCommandAvailable = false;
@@ -247,17 +261,15 @@ void loop() {
             }
             // --- End of new block ---
 
-
-            // Periodically update weight every 5 minutes
-            if (millis() - lastWeightUpdateTime > 300000) { // 300,000 ms = 5 mins
-                Serial.println("[SYSTEM] Time to update weight levels...");
-                updateFoodLevelsInFirestore();
-                lastWeightUpdateTime = millis();
-            }
+            // --- REMOVED 5-MINUTE UPDATE INTERVAL PER REQUEST ---
+            // The feeder will now only update weight when food is dispensed 
+            // or potentially on startup/registration.
             break;
         case ERROR:
-            Serial.println("[ERROR] Halting.");
-            delay(10000);
+            // --- MODIFIED: NO MORE HALTING ---
+            Serial.println("[ERROR] Error state reached. Restarting system in 5 seconds...");
+            delay(5000);
+            ESP.restart(); // Reboot to try again fresh
             break;
     }
     delay(100);
@@ -268,7 +280,8 @@ void tokenStatusCallback(TokenInfo info) {
         Serial.println("[AUTH] Token obtained successfully.");
     } else if (info.status == token_status_error) {
         Serial.printf("[AUTH] Token error: %s\n", info.error.message.c_str());
-        currentState = ERROR;
+        // Retry auth instead of error
+        delay(2000);
     }
 }
 
@@ -286,8 +299,9 @@ void connectToWiFi() {
         Serial.println("\n[WIFI] Connected!");
         currentState = SYNCING_TIME;
     } else {
-        Serial.println("\n[WIFI] Failed!");
-        currentState = ERROR;
+        Serial.println("\n[WIFI] Failed! Retrying...");
+        // Stay in CONNECTING_WIFI state to retry, do not go to ERROR
+        delay(2000);
     }
 }
 
@@ -323,8 +337,9 @@ void syncTimeWithHttpFallback() {
     HTTPClient http;
     // Use http, not https, to avoid SSL overhead on ESP32
     if (!http.begin("http://worldtimeapi.org/api/ip")) {
-        Serial.println("[TIME_HTTP] Failed to begin HTTP client.");
-        currentState = ERROR;
+        Serial.println("[TIME_HTTP] Failed to begin HTTP client. Retrying NTP...");
+        delay(3000);
+        currentState = SYNCING_TIME; // Loop back to NTP
         return;
     }
 
@@ -342,7 +357,9 @@ void syncTimeWithHttpFallback() {
             if (error) {
                 Serial.print(F("[TIME_HTTP] deserializeJson() failed: "));
                 Serial.println(error.f_str());
-                currentState = ERROR;
+                Serial.println("[TIME_HTTP] Retrying NTP...");
+                delay(3000);
+                currentState = SYNCING_TIME; // Loop back to NTP
             } else {
                 // Extract the 'unixtime' field
                 if (doc.containsKey("unixtime")) {
@@ -359,17 +376,20 @@ void syncTimeWithHttpFallback() {
                     Serial.print(asctime(&timeinfo));
                     currentState = AUTHENTICATING_FIREBASE;
                 } else {
-                     Serial.println("[TIME_HTTP] 'unixtime' field not found in response.");
-                     currentState = ERROR;
+                      Serial.println("[TIME_HTTP] 'unixtime' field not found. Retrying NTP...");
+                      delay(3000);
+                      currentState = SYNCING_TIME; // Loop back to NTP
                 }
             }
         } else {
-            Serial.printf("[TIME_HTTP] GET request failed, error: %s\n", http.errorToString(httpCode).c_str());
-            currentState = ERROR;
+            Serial.printf("[TIME_HTTP] GET request failed, error: %s. Retrying NTP...\n", http.errorToString(httpCode).c_str());
+            delay(3000);
+            currentState = SYNCING_TIME; // Loop back to NTP
         }
     } else {
-        Serial.printf("[TIME_HTTP] GET request failed, error: %s\n", http.errorToString(httpCode).c_str());
-        currentState = ERROR;
+        Serial.printf("[TIME_HTTP] GET request failed, error: %s. Retrying NTP...\n", http.errorToString(httpCode).c_str());
+        delay(3000);
+        currentState = SYNCING_TIME; // Loop back to NTP
     }
     http.end();
 }
@@ -393,16 +413,16 @@ void authenticateWithFirebase() {
     config.service_account.data.project_id = FIREBASE_PROJECT_ID;
     config.service_account.data.private_key = SERVICE_ACCOUNT_PRIVATE_KEY;
     config.token_status_callback = tokenStatusCallback;
-
-    // --- MEMORY OPTIMIZATION SETTINGS ---
-    // Reduce SSL buffer size to prevent heap fragmentation and OOM errors
-    // RX (Receive) = 4096 (need larger for JSON responses)
-    // TX (Transmit) = 1024 (enough for small writes)
-    stream_fbdo.setBSSLBufferSize(4096, 1024);
-    fbdo.setBSSLBufferSize(4096, 1024);
+    
+    // --- MEMORY OPTIMIZATION SETTINGS (UPDATED FOR STABILITY) ---
+    // RX set to 16384 (16KB) to handle initial SSL Handshake from Google
+    // TX set to 1024 (1KB) as we only send small commands
+    stream_fbdo.setBSSLBufferSize(16384, 1024);
+    fbdo.setBSSLBufferSize(16384, 1024);
     
     // Increase socket timeout to handle network lag better
-    config.timeout.socketConnection = 10000; // 10 seconds
+    config.timeout.socketConnection = 10000;
+    // 10 seconds
 
     Firebase.begin(&config, &auth);
     Firebase.reconnectWiFi(true);
@@ -417,7 +437,10 @@ void registerDeviceWithFirestore() {
     Serial.println("[FIREBASE] Registering device...");
     String owner_uid = preferences.getString("owner_uid", "");
     if (owner_uid.length() == 0) {
-        currentState = ERROR;
+        // Here we really can't recover without user input
+        Serial.println("[ERROR] No Owner UID found. Returning to Provisioning.");
+        currentState = PROVISIONING_MODE;
+        startProvisioningServer();
         return;
     }
 
@@ -455,16 +478,17 @@ void registerDeviceWithFirestore() {
                 Serial.println("[FIREBASE] User patched. Setup complete!");
                 currentState = OPERATIONAL;
             } else {
-                Serial.printf("[ERROR] Failed to patch user: %s\n", fbdo.errorReason().c_str());
-                currentState = ERROR;
+                Serial.printf("[ERROR] Failed to patch user: %s. Retrying...\n", fbdo.errorReason().c_str());
+                delay(2000);
+                // Try again next loop, stay in REGISTERING_FIREBASE
             }
         } else {
-            Serial.println("[ERROR] Failed to parse feeder ID from response.");
-            currentState = ERROR;
+            Serial.println("[ERROR] Failed to parse feeder ID. Retrying...");
+            delay(2000);
         }
     } else {
-        Serial.printf("[ERROR] Failed to create feeder doc: %s\n", fbdo.errorReason().c_str());
-        currentState = ERROR;
+        Serial.printf("[ERROR] Failed to create feeder doc: %s. Retrying...\n", fbdo.errorReason().c_str());
+        delay(2000);
     }
 }
 
@@ -624,10 +648,36 @@ void dispenseFood(int bowlNumber, int amount) {
 
 void startRTDBStream() {
     if (feederId.length() == 0 || !Firebase.ready()) return;
+
+    // ============================================================
+    // === IMPLEMENTED PRESENCE / ONLINE STATUS HERE            ===
+    // ============================================================
+    String statusPath = "/feeders/";
+    statusPath += feederId;
+    statusPath += "/status";
+
+    // 1. Set status to "online" immediately
+    Serial.println("[PRESENCE] Setting status to online...");
+    if (Firebase.RTDB.setString(&fbdo, statusPath.c_str(), "online")) {
+        Serial.println("[PRESENCE] Status set to online.");
+    } else {
+        Serial.printf("[PRESENCE] Failed to set online status: %s\n", fbdo.errorReason().c_str());
+    }
+
+    // --- FIX: REMOVED "OnDisconnect" LOGIC DUE TO VERSION MISMATCH ---
+    // The strict library version (~4.4.1) causes a compile error here.
+    // The device will still show as "online" via the setString above.
+    // ============================================================
+
+
     String fullStreamPath = streamPath;
     fullStreamPath.concat(feederId);
     Serial.print("[STREAM] Starting stream on path: ");
     Serial.println(fullStreamPath);
+    
+    // --- Clear any old session data before starting ---
+    stream_fbdo.clear();
+    
     if (!Firebase.RTDB.beginStream(&stream_fbdo, fullStreamPath.c_str())) {
         Serial.printf("[STREAM] Could not begin stream: %s\n", stream_fbdo.errorReason().c_str());
         return;
@@ -700,7 +750,7 @@ void streamCallback(FirebaseStream data) {
                 int amount = 0;
                 String tag = "";
                 // --- NEW FIELDS ---
-                String scheduleId = ""; 
+                String scheduleId = "";
                 String petId = "";
                 // --- End NEW FIELDS ---
 
@@ -724,9 +774,9 @@ void streamCallback(FirebaseStream data) {
                     currentPetId = petId;
                     // --- End SAVE NEW STATE ---
                 } else {
-                   Serial.println("[RFID] Invalid await_rfid command received (missing parameters).");
-                   // --- FIX: Use flag, this is a "safe" clear ---
-                   clearCommandNode = true;
+                     Serial.println("[RFID] Invalid await_rfid command received (missing parameters).");
+                     // --- FIX: Use flag, this is a "safe" clear ---
+                     clearCommandNode = true;
                 }
             }
         }
@@ -976,14 +1026,12 @@ void checkRfidTimeouts() {
     // --- UPDATED: WAITING TIMEOUT TO 2 MINUTES (120000 MS) ---
     if (rfidScanMode == WAITING && elapsed > 120000) { // 2 minute timeout
         Serial.printf("[RFID] WAITING mode for schedule %s (bowl %d) timed out. Reporting to RTDB.\n", currentScheduleId.c_str(), pendingBowl);
-
         // 1. REPORT TIMEOUT TO RTDB (This triggers the Cloud Function to send the notification)
         String timeoutPath = "feeder_timeout_events/";
         timeoutPath.concat(feederId);
         // Use a unique key (timestamp/millis) to ensure onValueCreated triggers
         timeoutPath.concat("/");
         timeoutPath.concat(String(millis()));
-
         FirebaseJson content;
         content.set("scheduleId", currentScheduleId);
         content.set("petId", currentPetId);
@@ -1002,7 +1050,6 @@ void checkRfidTimeouts() {
         currentPetId = "";
         pendingBowl = 0;
         pendingAmount = 0;
-
         // Queue command node clear
         Serial.println("[RFID] Waiting timed out, queueing command clear.");
         clearCommandNode = true;
