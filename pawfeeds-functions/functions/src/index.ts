@@ -1,13 +1,14 @@
 /*
- * Full file: enchi244/pawfeeds-app/pawfeeds-app-b1723b3842afb3d3d24ec3981b9ba1017b0b304c/pawfeeds-functions/functions/src/index.ts
+ * Full file: pawfeeds-functions/functions/src/index.ts
  *
  * UPDATED:
- * - Added checkPetMilestones scheduled function to run daily at 9:00 AM.
- * - Includes existing functions: registerFeeder, scheduledFeedChecker, onFeederTimeout, skipScheduledMeal, onFeederStatusUpdate.
+ * - Added createUserAccount (Admin Only)
+ * - Includes existing functions: registerFeeder, scheduledFeedChecker, onFeederTimeout, skipScheduledMeal, checkPetMilestones, onFeederStatusUpdate.
  */
 
 import { Expo, ExpoPushMessage } from "expo-server-sdk";
 import { initializeApp } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth"; // Added for Admin User Creation
 import { DataSnapshot, getDatabase, ServerValue } from "firebase-admin/database";
 import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
@@ -38,6 +39,14 @@ interface ScheduleData {
   bowlNumber: number;
   portionGrams: number;
   isEnabled: boolean; 
+}
+
+// Define structure for creating a user
+interface CreateUserRequest {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
 }
 
 /**
@@ -378,6 +387,59 @@ export const skipScheduledMeal = onCall(
 
 
 // ==========================================================
+// --- ADMIN: Create User Account ---
+// ==========================================================
+
+export const createUserAccount = onCall(
+  { region: "asia-southeast1" },
+  async (request) => {
+    // 1. Security Check: Ensure caller is an Admin
+    const requesterUid = request.auth?.uid;
+    if (!requesterUid) {
+      throw new HttpsError("unauthenticated", "You must be logged in.");
+    }
+
+    const userDoc = await firestore.collection("users").doc(requesterUid).get();
+    if (!userDoc.exists || !userDoc.data()?.isAdmin) {
+      throw new HttpsError("permission-denied", "Only admins can create accounts.");
+    }
+
+    const { email, password, firstName, lastName } = request.data as CreateUserRequest;
+
+    if (!email || !password || !firstName || !lastName) {
+      throw new HttpsError("invalid-argument", "Missing required fields.");
+    }
+
+    try {
+      // 2. Create Auth User
+      const userRecord = await getAuth().createUser({
+        email,
+        password,
+        displayName: `${firstName} ${lastName}`,
+      });
+
+      // 3. Create Firestore Profile
+      await firestore.collection("users").doc(userRecord.uid).set({
+        uid: userRecord.uid,
+        firstName,
+        lastName,
+        email: email.toLowerCase(),
+        createdAt: Timestamp.now(),
+        isAdmin: false, // Default to false, promote later if needed
+      });
+
+      logger.info(`Admin ${requesterUid} created user ${userRecord.uid}`);
+      return { status: "success", uid: userRecord.uid, message: "User created successfully." };
+
+    } catch (error: any) {
+      logger.error("Error creating user:", error);
+      throw new HttpsError("internal", error.message || "Failed to create user.");
+    }
+  }
+);
+
+
+// ==========================================================
 // --- NEW FEATURE: Pet Milestone Checker (Daily at 9 AM) ---
 // ==========================================================
 
@@ -642,98 +704,3 @@ async function sendLowFoodNotification(uid: string, bowl: number, level: number)
   const data = { screen: "home" };
   await sendGenericPushNotification(uid, title, body, data);
 }
-
-export const checkPetMilestones = onSchedule(
-  {
-    schedule: "every day 09:00", // Run once a day at a reasonable time
-    timeZone: "Asia/Singapore",
-    region: "asia-southeast1",
-  },
-  async (event) => {
-    logger.info("Running daily pet milestone checker...");
-
-    try {
-      // 1. Query ALL pets across ALL feeders using a Collection Group Query
-      const petsSnapshot = await firestore.collectionGroup("pets").get();
-
-      if (petsSnapshot.empty) {
-        logger.info("No pets found in database.");
-        return;
-      }
-
-      const promises: Promise<any>[] = [];
-      const today = new Date();
-
-      for (const petDoc of petsSnapshot.docs) {
-        const petData = petDoc.data();
-        const birthdayTimestamp = petData.birthday;
-
-        // Skip if no birthday set
-        if (!birthdayTimestamp) continue;
-
-        // 2. Calculate Age in Months
-        const birthDate = birthdayTimestamp.toDate();
-        let months = (today.getFullYear() - birthDate.getFullYear()) * 12;
-        months -= birthDate.getMonth();
-        months += today.getMonth();
-        // Adjust if the specific day hasn't passed yet in the current month
-        if (today.getDate() < birthDate.getDate()) {
-          months--;
-        }
-
-        // 3. Check Milestones
-        // We use a 'flags' array in the doc so we don't spam them every day of that month
-        const notifiedMilestones = petData.notifiedMilestones || [];
-        let alertTitle = "";
-        let alertBody = "";
-        let newMilestoneTag = "";
-
-        // --- Milestone A: 4 Months (Rapid -> Slow Growth) ---
-        if (months === 4 && !notifiedMilestones.includes("4mo")) {
-          newMilestoneTag = "4mo";
-          alertTitle = `🐶 ${petData.name} is 4 months old!`;
-          alertBody = "Growth spurts change! Your puppy's calorie needs are shifting. Please check their weight profile to adjust portions.";
-        }
-        
-        // --- Milestone B: 12 Months (Puppy -> Adult) ---
-        else if (months === 12 && !notifiedMilestones.includes("12mo")) {
-          newMilestoneTag = "12mo";
-          alertTitle = `🎂 Happy 1st Birthday ${petData.name}!`;
-          alertBody = `${petData.name} is officially an adult! Their metabolism has slowed down. Please update their profile to 'Adult' settings to prevent overfeeding.`;
-        }
-
-        // 4. Execute Notification & Update
-        if (newMilestoneTag) {
-          logger.info(`Triggering milestone ${newMilestoneTag} for pet ${petDoc.id} (${petData.name})`);
-
-          // A. Get the parent Feeder to find the Owner UID
-          // Structure: feeders/{feederId}/pets/{petId}
-          const feederRef = petDoc.ref.parent.parent; 
-          
-          if (feederRef) {
-            const p = feederRef.get().then(async (feederSnap) => {
-              const ownerUid = feederSnap.data()?.owner_uid;
-              
-              if (ownerUid) {
-                // B. Send Push Notification
-                await sendGenericPushNotification(ownerUid, alertTitle, alertBody, { screen: "pet_profile", petId: petDoc.id });
-                
-                // C. Update the Pet Document so we don't notify again
-                await petDoc.ref.update({
-                  notifiedMilestones: FieldValue.arrayUnion(newMilestoneTag)
-                });
-              }
-            });
-            promises.push(p);
-          }
-        }
-      }
-
-      await Promise.all(promises);
-      logger.info("Milestone check complete.");
-
-    } catch (error) {
-      logger.error("Error in checkPetMilestones:", error);
-    }
-  }
-);
