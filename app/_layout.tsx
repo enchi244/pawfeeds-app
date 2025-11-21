@@ -1,10 +1,8 @@
-// app/_layout.tsx
-import { SplashScreen, Stack, useRouter, useSegments } from 'expo-router'; // Make sure all are imported
+import { SplashScreen, Stack, useRouter, useSegments } from 'expo-router';
 import { useEffect } from 'react';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 
-// Keep the splash screen visible
 SplashScreen.preventAutoHideAsync();
 
 function RootLayoutNav() {
@@ -16,56 +14,56 @@ function RootLayoutNav() {
   usePushNotifications();
 
   useEffect(() => {
-    if (isLoading) {
-      return;
-    }
+    if (isLoading) return;
 
-    const inApp = segments[0] === '(tabs)';
-    const inAuth = segments[0] === 'login' || segments[0] === 'signup';
+    const inAuthGroup = segments[0] === '(auth)' || segments[0] === 'login' || segments[0] === 'signup';
+    const inAdminGroup = segments[0] === 'admin';
+    const inAppGroup = segments[0] === '(tabs)';
 
-    // --- FIX 1: Check for your specific authenticated states ---
-    const isAuthenticated =
-      authStatus === 'authenticated_no_feeder' ||
-      authStatus === 'authenticated_with_feeder';
-
-    if (isAuthenticated) {
-      // --- FIX 2: Removed 'segments.length === 0' ---
-      // This logic now assumes your root index.tsx file correctly
-      // redirects to /login if the user is unauthenticated.
-      if (inAuth) {
-        router.replace('/(tabs)');
+    // --- 1. HANDLE ADMIN REDIRECT ---
+    if (authStatus === 'authenticated_admin') {
+      // If they are an admin but NOT in the admin folder, send them there
+      if (!inAdminGroup) {
+        router.replace('/admin');
       }
-    } else if (authStatus === 'unauthenticated') {
-      // If the user is unauthenticated and is trying to access
-      // any page inside the app, redirect them to login.
-      if (inApp) {
+    } 
+    // --- 2. HANDLE USER REDIRECT ---
+    else if (
+      authStatus === 'authenticated_no_feeder' || 
+      authStatus === 'authenticated_with_feeder'
+    ) {
+      // If logged in user is in auth pages or admin pages, send to tabs
+      if (inAuthGroup || inAdminGroup) {
+         router.replace('/(tabs)');
+      }
+    } 
+    // --- 3. HANDLE UNAUTHENTICATED ---
+    else if (authStatus === 'unauthenticated') {
+      if (!inAuthGroup) {
         router.replace('/login');
       }
     }
 
-    // Hide the splash screen only after loading and routing are done
     SplashScreen.hideAsync();
   }, [isLoading, authStatus, segments, router]);
 
-  // Render nothing while loading. The splash screen will be visible.
-  if (isLoading) {
-    return null;
-  }
+  if (isLoading) return null;
 
-  // Once loaded, render the stack
   return (
     <Stack>
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="(provisioning)" options={{ headerShown: false }} />
+      {/* --- ADD THE ADMIN ROUTE --- */}
+      <Stack.Screen name="admin" options={{ headerShown: false }} /> 
+      
       <Stack.Screen name="pet/[id]" options={{ headerShown: false, presentation: 'modal' }} />
       <Stack.Screen name="schedule/[id]" options={{ headerShown: false, presentation: 'modal' }} />
     </Stack>
   );
 }
 
-// Your RootLayout function (unchanged)
 export default function RootLayout() {
   return (
     <AuthProvider>
