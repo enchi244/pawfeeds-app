@@ -4,7 +4,7 @@ import { Audio } from 'expo-av'; // We still need this for setAudioModeAsync
 import { useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
 import { getDatabase, ref, serverTimestamp as rtdbServerTimestamp, set } from 'firebase/database';
-import { collection, deleteDoc, doc, getDocs, onSnapshot, query, Unsubscribe, where } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, serverTimestamp as firestoreServerTimestamp, getDocs, onSnapshot, query, Unsubscribe, where } from 'firebase/firestore';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -407,30 +407,6 @@ const handleLogout = () => {
       setIsFilterModalVisible(false);
   };
 
-  const handleDispenseFeed = async (amount: number) => {
-    if (selectedBowlForAction === null || !amount || amount <= 0) {
-        Alert.alert('Invalid Amount', 'Please provide a valid portion amount.');
-        return;
-    }
-    if (!feederId) {
-      Alert.alert('Error', 'Feeder not identified. Cannot send command.');
-      return;
-    }
-    try {
-      const rtdb = getDatabase();
-      const commandPath = `commands/${feederId}`;
-      await set(ref(rtdb, commandPath), { command: 'feed', bowl: selectedBowlForAction, amount, timestamp: rtdbServerTimestamp() });
-      Alert.alert('Success', `Dispensing ${amount}g from Bowl ${selectedBowlForAction}.`);
-    } catch (error) {
-      console.error("Error sending feed command:", error);
-      Alert.alert('Error', 'Could not send feed command.');
-    } finally {
-      setIsFeedModalVisible(false);
-      setSelectedBowlForAction(null);
-      setCustomAmount('');
-    }
-  };
-
   const feedModalData = useMemo(() => {
     if (selectedBowlForAction === null) return null;
     const petId = selectedPetInBowl[selectedBowlForAction];
@@ -446,6 +422,44 @@ const handleLogout = () => {
   }, [selectedBowlForAction, selectedPetInBowl, pets, activeSchedulesByPetId]);
 
 
+  const handleDispenseFeed = async (amount: number) => {
+    if (selectedBowlForAction === null || !amount || amount <= 0) {
+        Alert.alert('Invalid Amount', 'Please provide a valid portion amount.');
+        return;
+    }
+    if (!feederId) {
+      Alert.alert('Error', 'Feeder not identified. Cannot send command.');
+      return;
+    }
+    try {
+      // 1. Send Command to RTDB
+      const rtdb = getDatabase();
+      const commandPath = `commands/${feederId}`;
+      await set(ref(rtdb, commandPath), { command: 'feed', bowl: selectedBowlForAction, amount, timestamp: rtdbServerTimestamp() });
+      
+      // 2. Write Log to Firestore
+      // We grab the pet name from the feedModalData computed property
+      const petName = feedModalData?.pet?.name || 'Manual Override';
+      
+      await addDoc(collection(db, 'feeders', feederId, 'history'), {
+           type: 'manual',
+           amount: amount,
+           bowlNumber: selectedBowlForAction,
+           petName: petName,
+           timestamp: firestoreServerTimestamp()
+      });
+
+      Alert.alert('Success', `Dispensing ${amount}g from Bowl ${selectedBowlForAction}.`);
+    } catch (error) {
+      console.error("Error sending feed command:", error);
+      Alert.alert('Error', 'Could not send feed command.');
+    } finally {
+      setIsFeedModalVisible(false);
+      setSelectedBowlForAction(null);
+      setCustomAmount('');
+    }
+  };
+
   if (isLoading) {
     return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
   }
@@ -455,7 +469,9 @@ const handleLogout = () => {
       <View style={styles.header}>
         <TouchableOpacity onPress={handleMenu}><MaterialCommunityIcons name="menu" size={28} color={COLORS.primary} /></TouchableOpacity>
         <Text style={styles.headerTitle}>PawFeeds</Text>
-        <View style={{ width: 28 }} />
+        <TouchableOpacity onPress={() => router.push('/logs')}>
+             <MaterialCommunityIcons name="history" size={28} color={COLORS.primary} />
+        </TouchableOpacity>
       </View>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         <View>

@@ -65,26 +65,26 @@ export default function AdminDashboard() {
         <Text style={styles.sectionTitle}>Support & Diagnostics</Text>
 
         <AdminCard 
-          title="Device Inspector" 
-          subtitle="Lookup feeder status by ID or User Email"
-          icon="chip"
-          onPress={() => Alert.alert("Coming Soon", "Device Inspector is under construction.")}
+        title="Device Inspector" 
+        subtitle="Lookup feeder status by ID or User Email"
+        icon="chip"
+        onPress={() => router.push('/admin/device-inspector')} 
         />
         
         <AdminCard 
-          title="User Management" 
-          subtitle="View active users and permissions"
-          icon="account-group"
-          onPress={() => Alert.alert("Coming Soon", "User Management is under construction.")}
+        title="User Management" 
+        subtitle="View active users and permissions"
+        icon="account-group"
+        onPress={() => router.push('/admin/users')}
         />
 
         <Text style={styles.sectionTitle}>System</Text>
 
         <AdminCard 
-          title="Firmware OTA" 
-          subtitle="Upload new firmware versions"
-          icon="cloud-upload"
-          onPress={() => Alert.alert("Coming Soon", "OTA Manager is under construction.")}
+        title="Firmware OTA" 
+        subtitle="Upload new firmware versions"
+        icon="cloud-upload"
+        onPress={() => router.push('/admin/firmware')}
         />
       </ScrollView>
     </SafeAreaView>

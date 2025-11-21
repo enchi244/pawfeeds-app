@@ -16,7 +16,8 @@ function RootLayoutNav() {
   useEffect(() => {
     if (isLoading) return;
 
-    const inAuthGroup = segments[0] === '(auth)' || segments[0] === 'login' || segments[0] === 'signup';
+    // FIX: Removed '(auth)' check as the folder does not exist, causing a TS type overlap error.
+    const inAuthGroup = segments[0] === 'login' || segments[0] === 'signup';
     const inAdminGroup = segments[0] === 'admin';
     const inAppGroup = segments[0] === '(tabs)';
 

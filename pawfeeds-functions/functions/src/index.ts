@@ -1,14 +1,6 @@
-/*
- * Full file: pawfeeds-functions/functions/src/index.ts
- *
- * UPDATED:
- * - Added createUserAccount (Admin Only)
- * - Includes existing functions: registerFeeder, scheduledFeedChecker, onFeederTimeout, skipScheduledMeal, checkPetMilestones, onFeederStatusUpdate.
- */
-
 import { Expo, ExpoPushMessage } from "expo-server-sdk";
 import { initializeApp } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth"; // Added for Admin User Creation
+import { getAuth } from "firebase-admin/auth";
 import { DataSnapshot, getDatabase, ServerValue } from "firebase-admin/database";
 import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
 import * as logger from "firebase-functions/logger";
@@ -164,7 +156,10 @@ export const scheduledFeedChecker = onSchedule(
                 continue;
               }
 
-              const rfidTagId = petDoc.data()?.rfidTagId;
+              const petData = petDoc.data();
+              const rfidTagId = petData?.rfidTagId;
+              const petName = petData?.name || "Unknown Pet";
+
               if (!rfidTagId) {
                 logger.warn(`Pet ${petId} has no rfidTagId. Skipping schedule ${scheduleDoc.id}.`);
                 continue;
@@ -186,9 +181,19 @@ export const scheduledFeedChecker = onSchedule(
                 logger.error(`Failed to send await_rfid command to feeder ${feederId} for schedule ${scheduleDoc.id}`, err);
               });
 
+              // --- LOGGING: Create a history entry ---
+              const historyRef = firestore.collection("feeders").doc(feederId).collection("history");
+              historyRef.add({
+                type: 'scheduled',
+                amount: schedule.portionGrams,
+                bowlNumber: schedule.bowlNumber,
+                petName: petName,
+                timestamp: FieldValue.serverTimestamp()
+              }).catch(err => logger.error(`Failed to log history for feeder ${feederId}`, err));
+
+
               // 3. Send push notification to the owner to let them know the feeder is "waiting"
               if (ownerUid) {
-                const petName = petDoc.data()?.name || "your pet";
                 const title = `Waiting for ${petName}...`;
                 const body = `Feeder is now waiting for ${petName} at Bowl ${schedule.bowlNumber}.`;
                 // We make this non-blocking

@@ -3,7 +3,8 @@ import { FirebaseApp, getApp, getApps, initializeApp } from "firebase/app";
 import { Auth, getAuth, getReactNativePersistence, initializeAuth } from "firebase/auth";
 import { getDatabase } from "firebase/database";
 import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage"; // 1. IMPORT getStorage
+import { getFunctions } from "firebase/functions"; // 1. Import getFunctions
+import { getStorage } from "firebase/storage";
 
 // Your app's Firebase project configuration
 const firebaseConfig = {
@@ -16,21 +17,16 @@ const firebaseConfig = {
   databaseURL: "https://pawfeeds-v2-default-rtdb.asia-southeast1.firebasedatabase.app"
 };
 
-
-// ** FIX: The definitive solution for initialization **
 // Declare variables to hold the app and auth instances.
 let app: FirebaseApp;
 let auth: Auth;
 
-// Check if a Firebase app has already been initialized.
 if (!getApps().length) {
-  // If not, initialize the app and auth with persistence for the first time.
   app = initializeApp(firebaseConfig);
   auth = initializeAuth(app, {
     persistence: getReactNativePersistence(ReactNativeAsyncStorage)
   });
 } else {
-  // If an app already exists (due to hot reloading), get the existing instances.
   app = getApp();
   auth = getAuth(app);
 }
@@ -38,7 +34,9 @@ if (!getApps().length) {
 // Initialize other Firebase services
 const db = getFirestore(app);
 const database = getDatabase(app);
-const storage = getStorage(app); // 2. INITIALIZE storage
+const storage = getStorage(app);
+// 2. Initialize Functions (Ensure region matches your backend)
+const functions = getFunctions(app, 'asia-southeast1');
 
-// Export all the configured services
-export { auth, database, db, storage }; // 3. EXPORT storage
+// 3. Export functions
+export { auth, database, db, functions, storage };
