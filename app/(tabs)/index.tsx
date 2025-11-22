@@ -45,6 +45,8 @@ interface Pet {
   id: string;
   name: string;
   recommendedPortion: number;
+  snackPortion?: number; // Added snack portion to interface
+  bowlNumber?: number;
 }
 
 interface Schedule {
@@ -77,7 +79,6 @@ const BowlCard: React.FC<BowlCardProps> = ({
   isActive,
   isFeederOnline 
 }) => {
-    // If no pet is assigned via schedule, it is unassigned
     const isUnassigned = !selectedPet;
     const isFeedDisabled = isUnassigned || !isFeederOnline;
 
@@ -97,7 +98,6 @@ const BowlCard: React.FC<BowlCardProps> = ({
     return (
       <View style={[styles.card, { width: CARD_WIDTH }]}>
         <View style={styles.cardHeader}>
-          {/* REMOVED: TouchableOpacity and Chevron. Now just static text. */}
           <View style={styles.cardTitleContainer}>
               <Text style={[styles.cardTitle, isUnassigned && { color: '#999' }]}>
                 {`Bowl ${bowlNumber} - ${selectedPet?.name || 'No Pet Assigned'}`}
@@ -148,7 +148,7 @@ const BowlCard: React.FC<BowlCardProps> = ({
         </TouchableOpacity>
 
         <Text style={styles.portionText}>
-          {`Next meal portion: ${perMealPortion > 0 ? perMealPortion : '--'}g`}
+          {`Next scheduled meal: ${perMealPortion > 0 ? perMealPortion : '--'}g`}
         </Text>
       </View>
     );
@@ -262,26 +262,16 @@ export default function DashboardScreen() {
     };
   }, [user]);
   
-  // --- LOGIC CHANGE: Automatically assign pet to bowl based on schedules ---
   const assignedPetsByBowl = useMemo(() => {
     const bowlMap: { [bowlId: string]: Pet | undefined } = {};
-    
-    // We assume 1 pet per bowl. We iterate schedules to find the "Owner" of the bowl.
-    // If multiple schedules exist for a bowl, they should (by rule) belong to the same pet.
-    schedules.forEach(schedule => {
-      if (schedule.isEnabled && schedule.petId && schedule.bowlNumber) {
-         if (!bowlMap[schedule.bowlNumber]) {
-             const pet = pets.find(p => p.id === schedule.petId);
-             if (pet) {
-                 bowlMap[schedule.bowlNumber] = pet;
-             }
-         }
+    pets.forEach(pet => {
+      if (pet.bowlNumber) {
+        bowlMap[pet.bowlNumber] = pet;
       }
     });
     return bowlMap;
-  }, [schedules, pets]);
+  }, [pets]);
 
-  // Calculate active schedules for portion math
   const activeSchedulesByPetId = useMemo(() => {
     const counts: { [petId: string]: number } = {};
     schedules.forEach(schedule => {
@@ -385,7 +375,6 @@ export default function DashboardScreen() {
         Alert.alert("Feeder Offline", "Cannot dispense food while the feeder is offline.");
         return;
     }
-    // Check if a pet is actually assigned
     if (!assignedPetsByBowl[bowlNumber]) {
          Alert.alert("No Pet Assigned", "Please schedule a pet to this bowl before using Feed Now.");
          return;
@@ -397,19 +386,19 @@ export default function DashboardScreen() {
     setIsFeedModalVisible(true);
   };
 
-  // --- REFACTOR: Calculate feed data based on auto-assigned pet ---
+  // --- UPDATED: Use Snack Portion for Manual Feed ---
   const feedModalData = useMemo(() => {
     if (selectedBowlForAction === null) return null;
     
-    // Get the pet automatically assigned to this bowl
     const pet = assignedPetsByBowl[selectedBowlForAction];
     if (!pet) return null;
 
-    const activeScheduleCount = activeSchedulesByPetId[pet.id] || 0;
-    const perMealPortion = (pet.recommendedPortion && activeScheduleCount > 0) ? Math.round(pet.recommendedPortion / activeScheduleCount) : 0;
+    // Instead of calculating from schedules, we use the saved snackPortion
+    // Default to 15g if not found
+    const snackPortion = pet.snackPortion || 15; 
 
-    return { pet, perMealPortion };
-  }, [selectedBowlForAction, assignedPetsByBowl, activeSchedulesByPetId]);
+    return { pet, snackPortion };
+  }, [selectedBowlForAction, assignedPetsByBowl]);
 
 
   const handleDispenseFeed = async (amount: number) => {
@@ -466,9 +455,9 @@ export default function DashboardScreen() {
         <View>
           <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16} contentContainerStyle={styles.swiperContainer} decelerationRate="fast" snapToInterval={CARD_WIDTH + 20} snapToAlignment="start">
             {bowlsConfig.map((bowl, index) => {
-                // Use the auto-assigned pet
                 const selectedPet = assignedPetsByBowl[bowl.id];
                 
+                // Calculate scheduled portion just for display on the card (info only)
                 const activeScheduleCount = selectedPet ? (activeSchedulesByPetId[selectedPet.id] || 0) : 0;
                 const perMealPortion = (selectedPet && selectedPet.recommendedPortion && activeScheduleCount > 0) ? Math.round(selectedPet.recommendedPortion / activeScheduleCount) : 0;
                 
@@ -535,8 +524,8 @@ export default function DashboardScreen() {
         <TouchableOpacity style={styles.modalOverlay} onPress={() => setIsFeedModalVisible(false)} activeOpacity={1}>
             <TouchableOpacity activeOpacity={1} style={styles.selectionModalContent}>
                 <View style={{padding: 2, alignItems: 'center', width: '100%'}}>
-                <TouchableOpacity style={[styles.modalButton, !feedModalData?.perMealPortion && styles.disabledButton]} onPress={() => handleDispenseFeed(feedModalData?.perMealPortion || 0)} disabled={!feedModalData?.perMealPortion}>
-                    <Text style={styles.modalButtonText}>{`Dispense Meal (${feedModalData?.perMealPortion || 0}g)`}</Text>
+                <TouchableOpacity style={[styles.modalButton, !feedModalData?.snackPortion && styles.disabledButton]} onPress={() => handleDispenseFeed(feedModalData?.snackPortion || 0)} disabled={!feedModalData?.snackPortion}>
+                    <Text style={styles.modalButtonText}>{`Dispense Snack (${feedModalData?.snackPortion || 0}g)`}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.customFeedToggle} onPress={() => setIsCustomFeedVisible(!isCustomFeedVisible)}>
                     <Text style={styles.customFeedToggleText}>Custom Amount</Text>

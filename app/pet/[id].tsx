@@ -62,6 +62,7 @@ interface DogBreed {
   defaultKcal: number;
   defaultActivity: 'Low' | 'Normal' | 'High';
   defaultNeuterStatus: 'Neutered/Spayed' | 'Intact';
+  defaultSnackPortion: number; // Added snack portion
 }
 
 interface OccupiedBowl {
@@ -152,6 +153,7 @@ export default function PetProfileScreen() {
   const [neuterStatus, setNeuterStatus] = useState('Neutered/Spayed');
   const [activityLevel, setActivityLevel] = useState('Normal');
   const [recommendedPortion, setRecommendedPortion] = useState(0);
+  const [snackPortion, setSnackPortion] = useState(0); // NEW STATE
   const [feederId, setFeederId] = useState<string | null>(null);
 
   const [idealPortion, setIdealPortion] = useState<number | null>(null);
@@ -253,6 +255,7 @@ export default function PetProfileScreen() {
           setNeuterStatus(petData.neuterStatus || 'Neutered/Spayed');
           setActivityLevel(petData.activityLevel || 'Normal');
           setRecommendedPortion(petData.recommendedPortion || 0);
+          setSnackPortion(petData.snackPortion || 15); // Default to 15 if missing
           setRfidTagId(petData.rfidTagId || '');
           
           setAssignedBowl(petData.bowlNumber || 1);
@@ -304,6 +307,7 @@ export default function PetProfileScreen() {
       setKcal(preset.defaultKcal.toString());
       setActivityLevel(preset.defaultActivity);
       setNeuterStatus(preset.defaultNeuterStatus);
+      setSnackPortion(preset.defaultSnackPortion || 15); // Apply default snack portion
 
       if (ageInMonths !== null && ageInMonths < 12) {
         const estimated = estimatePuppyWeight(preset.defaultWeight, ageInMonths);
@@ -556,6 +560,7 @@ export default function PetProfileScreen() {
       neuterStatus,
       activityLevel,
       recommendedPortion,
+      snackPortion, // Save the snack portion
       rfidTagId: rfidTagId,
       bowlNumber: assignedBowl,
       breed: selectedBreedId ? breeds.find(b => b.id === selectedBreedId)?.name : 'Unknown',
@@ -637,9 +642,11 @@ export default function PetProfileScreen() {
       await batch.commit();
       
       // 6. Recalculate portions logic (standard)
-      await recalculatePortionsForPet(petDocRef.id);
+      // Passing recommendedPortion explicitly to ensure it's used immediately
+      await recalculatePortionsForPet(feederId, petDocRef.id, recommendedPortion);
+      
       if (conflictPet) {
-          await recalculatePortionsForPet(conflictPet.petId);
+          await recalculatePortionsForPet(feederId, conflictPet.petId);
       }
 
       Alert.alert(
