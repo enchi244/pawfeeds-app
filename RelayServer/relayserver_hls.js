@@ -22,6 +22,7 @@ const CAMERA_SOURCES = {
   // Key: The "stream key" to push to. e.g., rtmp://.../live/stream1
   // Value: The local IP of the camera.
   'stream1': 'http://192.168.1.183/stream', // Bowl 1 Camera
+  'stream2': 'http://192.168.1.187/stream', // Bowl 2 Camera
 };
 
 // FFmpeg settings for a stable MJPEG -> RTMP push
