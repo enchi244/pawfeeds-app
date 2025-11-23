@@ -560,7 +560,7 @@ export default function PetProfileScreen() {
       neuterStatus,
       activityLevel,
       recommendedPortion,
-      snackPortion, // Save the snack portion
+      snackPortion, 
       rfidTagId: rfidTagId,
       bowlNumber: assignedBowl,
       breed: selectedBreedId ? breeds.find(b => b.id === selectedBreedId)?.name : 'Unknown',
@@ -568,6 +568,25 @@ export default function PetProfileScreen() {
 
     try {
       const batch = writeBatch(db);
+
+      // --- NEW: DUPLICATE TAG CHECK ---
+      // Query Firestore to see if this RFID tag is already in use by another pet in this feeder
+      const petsRef = collection(db, 'feeders', feederId, 'pets');
+      const duplicateQuery = query(petsRef, where('rfidTagId', '==', rfidTagId));
+      const duplicateSnapshot = await getDocs(duplicateQuery);
+
+      // Check if found doc is NOT the current pet (allow editing own tag)
+      const duplicatePet = duplicateSnapshot.docs.find(doc => doc.id !== (isEditing ? id : ''));
+
+      if (duplicatePet) {
+        Alert.alert(
+          'Duplicate Tag Detected', 
+          `The tag "${rfidTagId}" is already assigned to ${duplicatePet.data().name}. \n\nPlease scan a different tag or reset the other pet.`
+        );
+        setIsLoading(false);
+        return; // STOP execution here
+      }
+      // --------------------------------
 
       // 1. Determine Ref for Current Pet
       let petDocRef;
@@ -592,13 +611,8 @@ export default function PetProfileScreen() {
           const conflictPetRef = doc(db, 'feeders', feederId, 'pets', conflictPet.petId);
           
           // Determine target bowl for evicted pet
-          // If standard 2-bowl system: swap to the OTHER bowl (1 or 2)
-          // If the current pet had an initial bowl (editing), they swap places.
-          // If current pet is new, evicted pet goes to the remaining bowl (likely 1 or 2).
-          
           let targetBowlForConflict = initialBowl; 
           if (!targetBowlForConflict) {
-              // If new pet taking a spot, move conflict pet to the other bowl
               targetBowlForConflict = assignedBowl === 1 ? 2 : 1;
           }
 
@@ -626,8 +640,8 @@ export default function PetProfileScreen() {
           // C. Update Current Pet Schedules (if editing and bowl changed)
           if (initialBowl !== assignedBowl) {
               const mySchedulesQ = query(
-                 collection(db, 'feeders', feederId, 'schedules'), 
-                 where('petId', '==', id)
+                  collection(db, 'feeders', feederId, 'schedules'), 
+                  where('petId', '==', id)
               );
               const mySchedulesSnap = await getDocs(mySchedulesQ);
               mySchedulesSnap.forEach(sDoc => {
@@ -642,7 +656,6 @@ export default function PetProfileScreen() {
       await batch.commit();
       
       // 6. Recalculate portions logic (standard)
-      // Passing recommendedPortion explicitly to ensure it's used immediately
       await recalculatePortionsForPet(feederId, petDocRef.id, recommendedPortion);
       
       if (conflictPet) {
@@ -778,9 +791,9 @@ export default function PetProfileScreen() {
                              if (!breed) return null;
                              const badge = getBadgeStyle(breed.size);
                              return (
-                                <View style={[styles.sizeBadge, { backgroundColor: badge.backgroundColor, marginLeft: 10 }]}>
-                                    <Text style={[styles.sizeBadgeText, { color: badge.color }]}>{breed.size}</Text>
-                                </View>
+                                 <View style={[styles.sizeBadge, { backgroundColor: badge.backgroundColor, marginLeft: 10 }]}>
+                                     <Text style={[styles.sizeBadgeText, { color: badge.color }]}>{breed.size}</Text>
+                                 </View>
                              );
                          })()}
                     </View>

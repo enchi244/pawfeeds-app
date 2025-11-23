@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  FlatList,
   Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -18,7 +19,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { VLCPlayer } from 'react-native-vlc-media-player';
@@ -45,7 +46,7 @@ interface Pet {
   id: string;
   name: string;
   recommendedPortion: number;
-  snackPortion?: number; // Added snack portion to interface
+  snackPortion?: number; 
   bowlNumber?: number;
 }
 
@@ -56,6 +57,11 @@ interface Schedule {
   time: string;
   bowlNumber: number;
   isEnabled: boolean;
+}
+
+interface Feeder {
+  id: string;
+  [key: string]: any;
 }
 
 interface BowlCardProps {
@@ -169,9 +175,13 @@ const formatScheduleTime = (timeString: string): string => {
 
 export default function DashboardScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, refreshUserData } = useAuth();
   const [activeIndex, setActiveIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Data State
+  const [allFeeders, setAllFeeders] = useState<Feeder[]>([]);
+  const [feederId, setFeederId] = useState<string | null>(null);
   
   const [isFeederOnline, setIsFeederOnline] = useState(false);
   const [isMenuVisible, setIsMenuVisible] = useState(false);
@@ -186,8 +196,10 @@ export default function DashboardScreen() {
 
   const [isCustomFeedVisible, setIsCustomFeedVisible] = useState(false);
 
-  const [feederId, setFeederId] = useState<string | null>(null);
-  
+  // Reset Device Modal State
+  const [isResetSelectionVisible, setIsResetSelectionVisible] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
   const PUBLIC_HLS_SERVER_DOMAIN = 'workspherecbd.site';
   
   const [streamUris, setStreamUris] = useState<{ [bowlId: string]: string | null }>({
@@ -198,69 +210,98 @@ export default function DashboardScreen() {
   const [foodLevels, setFoodLevels] = useState<{ [bowlId: string]: number }>({});
   const bowlsConfig = [{ id: 1 }, { id: 2 }];
 
+  // 1. Fetch List of Feeders owned by User
   useEffect(() => {
     if (!user) {
       setIsLoading(false);
       return;
     }
 
-    const unsubscribes: Unsubscribe[] = [];
-    const rtdbUnsubscribes: (() => void)[] = [];
+    const fetchFeeders = async () => {
+      try {
+        const feedersRef = collection(db, 'feeders');
+        const q = query(feedersRef, where('owner_uid', '==', user.uid));
+        const querySnapshot = await getDocs(q);
+        
+        const fetchedFeeders = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        
+        setAllFeeders(fetchedFeeders);
 
-    const fetchFeederAndData = async () => {
-      const feedersRef = collection(db, 'feeders');
-      const q = query(feedersRef, where('owner_uid', '==', user.uid));
-      const querySnapshot = await getDocs(q);
-
-      if (!querySnapshot.empty) {
-        const currentFeederId = querySnapshot.docs[0].id;
-        setFeederId(currentFeederId);
-
-        // Firestore Feeder Data
-        const feederDocRef = doc(db, 'feeders', currentFeederId);
-        const feederUnsub = onSnapshot(feederDocRef, (doc) => {
-            if (doc.exists()) {
-                const data = doc.data();
-                setFoodLevels(data.foodLevels || { "1": 0, "2": 0 });
-            }
-        });
-        unsubscribes.push(feederUnsub);
-
-        // RTDB Presence
-        const rtdb = getDatabase();
-        const statusRef = ref(rtdb, `feeders/${currentFeederId}/status`);
-        const statusUnsub = onValue(statusRef, (snapshot) => {
-            const status = snapshot.val();
-            setIsFeederOnline(status === 'online');
-        });
-        rtdbUnsubscribes.push(() => statusUnsub()); 
-
-        // Pets
-        const petsRef = collection(db, 'feeders', currentFeederId, 'pets');
-        const petsUnsub = onSnapshot(petsRef, (snapshot) => {
-          setPets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Pet)));
-        });
-        unsubscribes.push(petsUnsub);
-
-        // Schedules
-        const schedulesRef = collection(db, 'feeders', currentFeederId, 'schedules');
-        const schedulesUnsub = onSnapshot(schedulesRef, (snapshot) => {
-          setSchedules(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Schedule)));
-          setIsLoading(false);
-        });
-        unsubscribes.push(schedulesUnsub);
-      } else {
+        if (fetchedFeeders.length > 0) {
+          // Keep current feeder if valid, else default to first
+          if (!feederId || !fetchedFeeders.find(f => f.id === feederId)) {
+            setFeederId(fetchedFeeders[0].id);
+          }
+        } else {
+          setFeederId(null);
+          setIsLoading(false); // No feeders, stop loading
+        }
+      } catch (error) {
+        console.error("Error fetching feeders:", error);
         setIsLoading(false);
       }
     };
 
-    fetchFeederAndData().catch(console.error);
+    fetchFeeders();
+  }, [user, refreshTrigger]);
+
+  // 2. Subscribe to Active Feeder Data
+  useEffect(() => {
+    if (!feederId || !user) {
+      return;
+    }
+
+    setIsLoading(true);
+    const unsubscribes: Unsubscribe[] = [];
+    const rtdbUnsubscribes: (() => void)[] = [];
+
+    // Firestore Feeder Data (Food Levels)
+    const feederDocRef = doc(db, 'feeders', feederId);
+    const feederUnsub = onSnapshot(feederDocRef, (doc) => {
+        if (doc.exists()) {
+            const data = doc.data();
+            setFoodLevels(data.foodLevels || { "1": 0, "2": 0 });
+        } else {
+          // Document deleted or unavailable
+          setIsFeederOnline(false);
+        }
+    }, (error) => {
+        console.error("Feeder doc snapshot error:", error);
+    });
+    unsubscribes.push(feederUnsub);
+
+    // RTDB Presence
+    const rtdb = getDatabase();
+    const statusRef = ref(rtdb, `feeders/${feederId}/status`);
+    const statusUnsub = onValue(statusRef, (snapshot) => {
+        const status = snapshot.val();
+        setIsFeederOnline(status === 'online');
+    });
+    rtdbUnsubscribes.push(() => statusUnsub()); 
+
+    // Pets
+    const petsRef = collection(db, 'feeders', feederId, 'pets');
+    const petsUnsub = onSnapshot(petsRef, (snapshot) => {
+      setPets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Pet)));
+    });
+    unsubscribes.push(petsUnsub);
+
+    // Schedules
+    const schedulesRef = collection(db, 'feeders', feederId, 'schedules');
+    const schedulesUnsub = onSnapshot(schedulesRef, (snapshot) => {
+      setSchedules(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Schedule)));
+      setIsLoading(false);
+    });
+    unsubscribes.push(schedulesUnsub);
 
     return () => {
         unsubscribes.forEach(unsub => unsub());
         rtdbUnsubscribes.forEach(unsub => unsub());
     };
-  }, [user]);
+  }, [feederId, user]);
   
   const assignedPetsByBowl = useMemo(() => {
     const bowlMap: { [bowlId: string]: Pet | undefined } = {};
@@ -310,45 +351,70 @@ export default function DashboardScreen() {
     ]);
   };
 
-  const handleResetDevice = () => {
+  const handleResetMenuPress = () => {
     handleMenuClose();
+    if (allFeeders.length === 0) {
+      Alert.alert("Error", "No devices found to reset.");
+      return;
+    }
+    
+    // If user has multiple devices, show selection modal
+    if (allFeeders.length > 1) {
+      setIsResetSelectionVisible(true);
+    } else {
+      // If only one device, proceed directly to confirmation
+      confirmResetDevice(allFeeders[0].id);
+    }
+  };
+
+  const confirmResetDevice = (targetFeederId: string) => {
+    // Dismiss selection modal if open
+    setIsResetSelectionVisible(false);
+
     Alert.alert(
       "Reset Device",
-      "This will erase the feeder from your account and send a reset command to the device. Are you sure you want to proceed?",
+      "This will erase the feeder from your account and send a reset command to the device. You will NOT be logged out. Are you sure you want to proceed?",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Reset",
           style: "destructive",
-          onPress: async () => {
-            if (!feederId || !user) {
-              Alert.alert("Error", "Feeder or user not identified. Cannot reset.");
-              return;
-            }
-            try {
-              const rtdb = getDatabase();
-              const commandPath = `commands/${feederId}`;
-              await set(ref(rtdb, commandPath), {
-                command: "reset_device",
-                timestamp: rtdbServerTimestamp(),
-              });
-
-              const feederDocRef = doc(db, 'feeders', feederId);
-              await deleteDoc(feederDocRef);
-
-              await signOut(auth);
-              router.replace("/login");
-
-              Alert.alert("Success", "Device has been reset and removed from your account.");
-
-            } catch (error) {
-              console.error("Error resetting device:", error);
-              Alert.alert("Error", "Could not complete the reset process. Please try again.");
-            }
-          },
+          onPress: () => performResetDevice(targetFeederId),
         },
       ]
     );
+  };
+
+  const performResetDevice = async (targetFeederId: string) => {
+    if (!targetFeederId || !user) {
+      Alert.alert("Error", "Feeder or user not identified. Cannot reset.");
+      return;
+    }
+    try {
+      const rtdb = getDatabase();
+      const commandPath = `commands/${targetFeederId}`;
+      await set(ref(rtdb, commandPath), {
+        command: "reset_device",
+        timestamp: rtdbServerTimestamp(),
+      });
+
+      const feederDocRef = doc(db, 'feeders', targetFeederId);
+      await deleteDoc(feederDocRef);
+
+      // Force refresh of auth status (will redirect if no feeders left)
+      if (refreshUserData) {
+        await refreshUserData(); 
+      }
+      
+      // Trigger a re-fetch of the feeders list to update UI
+      setRefreshTrigger(prev => prev + 1);
+
+      Alert.alert("Success", "Device has been reset and removed from your account.");
+
+    } catch (error) {
+      console.error("Error resetting device:", error);
+      Alert.alert("Error", "Could not complete the reset process. Please try again.");
+    }
   };
 
   const handleAccountPress = () => {
@@ -386,15 +452,12 @@ export default function DashboardScreen() {
     setIsFeedModalVisible(true);
   };
 
-  // --- UPDATED: Use Snack Portion for Manual Feed ---
   const feedModalData = useMemo(() => {
     if (selectedBowlForAction === null) return null;
     
     const pet = assignedPetsByBowl[selectedBowlForAction];
     if (!pet) return null;
 
-    // Instead of calculating from schedules, we use the saved snackPortion
-    // Default to 15g if not found
     const snackPortion = pet.snackPortion || 15; 
 
     return { pet, snackPortion };
@@ -457,7 +520,6 @@ export default function DashboardScreen() {
             {bowlsConfig.map((bowl, index) => {
                 const selectedPet = assignedPetsByBowl[bowl.id];
                 
-                // Calculate scheduled portion just for display on the card (info only)
                 const activeScheduleCount = selectedPet ? (activeSchedulesByPetId[selectedPet.id] || 0) : 0;
                 const perMealPortion = (selectedPet && selectedPet.recommendedPortion && activeScheduleCount > 0) ? Math.round(selectedPet.recommendedPortion / activeScheduleCount) : 0;
                 
@@ -512,9 +574,38 @@ export default function DashboardScreen() {
             <Text style={styles.menuTitle}>Menu</Text>
             <TouchableOpacity style={styles.menuItem} onPress={handleAccountPress}><MaterialCommunityIcons name="account-circle-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Account</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => { handleMenuClose(); router.push('/(provisioning)'); }}><MaterialCommunityIcons name="plus-box-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Add Device</Text></TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={handleResetDevice}><MaterialCommunityIcons name="restart" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Reset Device</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.menuItem} onPress={handleResetMenuPress}><MaterialCommunityIcons name="restart" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Reset Device</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('Coming Soon', 'Manual and tutorials will be available here.')}><MaterialCommunityIcons name="book-open-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Manual</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuLogoutButton} onPress={handleLogout}><MaterialCommunityIcons name="logout" size={24} color={COLORS.danger} style={styles.menuIcon} /><Text style={styles.menuLogoutText}>Logout</Text></TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Reset Device Selection Modal */}
+      <Modal animationType="fade" transparent={true} visible={isResetSelectionVisible} onRequestClose={() => setIsResetSelectionVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} onPress={() => setIsResetSelectionVisible(false)} activeOpacity={1}>
+          <View style={styles.menuContainer}>
+            <Text style={styles.menuTitle}>Select Device to Reset</Text>
+            <Text style={styles.modalSubtitle}>Choose a device to remove from your account.</Text>
+            <FlatList 
+              data={allFeeders}
+              keyExtractor={(item) => item.id}
+              style={{ maxHeight: 300, width: '100%' }}
+              renderItem={({ item, index }) => (
+                <TouchableOpacity 
+                  style={styles.menuItem} 
+                  onPress={() => confirmResetDevice(item.id)}
+                >
+                  <MaterialCommunityIcons name="router-wireless" size={24} color={COLORS.primary} style={styles.menuIcon} />
+                  <Text style={styles.menuItemText} numberOfLines={1}>
+                    {item.name || `Feeder ${index + 1}`} <Text style={{fontSize: 12, color: '#999'}}>({item.id.slice(0, 5)}...)</Text>
+                  </Text>
+                </TouchableOpacity>
+              )}
+            />
+            <TouchableOpacity style={styles.cancelButton} onPress={() => setIsResetSelectionVisible(false)}>
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -544,7 +635,6 @@ export default function DashboardScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Removed "Pet Filter Modal" completely as it's no longer used */}
     </SafeAreaView>
   );
 }
@@ -609,8 +699,8 @@ const styles = StyleSheet.create({
   customFeedToggle: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.lightGray, marginVertical: 12 },
   customFeedToggleText: { fontSize: 16, fontWeight: '600', color: COLORS.text },
   customFeedContainer: { width: '100%', alignItems: 'center' },
-  cancelButton: { backgroundColor: 'transparent' },
-  cancelButtonText: { color: COLORS.danger, fontWeight: '600' },
+  cancelButton: { backgroundColor: 'transparent', marginTop: 10, alignSelf: 'center', padding: 10 },
+  cancelButtonText: { color: COLORS.danger, fontWeight: '600', fontSize: 16 },
   unassignButton: { backgroundColor: COLORS.danger, borderWidth: 0},
   selectionModalContent: { backgroundColor: COLORS.white, borderRadius: 12, padding: 20, width: '85%', maxHeight: '60%' },
   selectionItem: { paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray },
