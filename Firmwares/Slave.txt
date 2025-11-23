@@ -17,7 +17,7 @@
 // ==========================================================
 // IMPORTANT: CONFIGURE THIS FOR EACH CAMERA BEFORE UPLOADING
 // ==========================================================
-#define BOWL_NUMBER 2 // Use 1 for the first camera, 2 for the second
+#define BOWL_NUMBER 1 // Use 1 for the first camera, 2 for the second
 // ==========================================================
 
 // --- FIREBASE CONFIGURATION (copy from master) ---
@@ -68,7 +68,7 @@
 #define Y5_GPIO_NUM       21
 #define Y4_GPIO_NUM       19
 #define Y3_GPIO_NUM       18
-#define Y2_GPIO_NUM        5
+#define Y2_GPIO_NUM       5
 #define VSYNC_GPIO_NUM    25
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
@@ -111,7 +111,8 @@ void tokenStatusCallback(TokenInfo info);
 void listenForFeederId();
 esp_err_t stream_handler(httpd_req_t *req);
 void camera_server_task(void *pvParameters);
-
+void performFactoryReset();
+void checkSerialCommands();
 
 void setup() {
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); 
@@ -130,6 +131,45 @@ void setup() {
     currentState = CONNECTING_WIFI;
   }
 }
+
+// --- RESET HELPER FUNCTIONS ---
+void performFactoryReset() {
+  Serial.println("[SYSTEM] Factory Reset triggered. Wiping data...");
+  
+  // 1. Clear NVS
+  preferences.begin("pawfeeds-cam", false);
+  preferences.clear();
+  preferences.end();
+
+  // 2. Reboot
+  Serial.println("[SYSTEM] Rebooting...");
+  delay(1000);
+  ESP.restart();
+}
+
+void checkSerialCommands() {
+  // Non-blocking check for incoming serial data from Master
+  if (SerialSlave.available()) {
+    String packet = SerialSlave.readStringUntil('\n');
+    packet.trim();
+    
+    if (packet.length() > 0) {
+      Serial.printf("[SERIAL] Received: %s\n", packet.c_str());
+      
+      if (packet == "RESET_DEVICE") {
+        // 1. CRITICAL FIX: Send confirmation back to Master
+        SerialSlave.println("OK"); 
+        
+        // 2. Give the serial message a moment to actually leave the chip
+        delay(100); 
+
+        // 3. Now wipe and reboot
+        performFactoryReset();
+      }
+    }
+  }
+}
+// ------------------------------
 
 // The main loop runs implicitly on Core 0, handling Firebase and general logic.
 void loop() {
@@ -165,24 +205,15 @@ void loop() {
       }
 
       // ===================================================================
-      // === THIS IS THE FIX: Disable the RTDB stream ======================
+      // === CRITICAL: Listen for Master Reset Command =====================
       // ===================================================================
-      // By commenting out this block, Core 0 is now free and will not
-      // compete with Core 1 for network resources, which was causing
-      // the "Send chunk failed" error.
-      /*
-      if (!streamActive) {
-        startRTDBStream();
-      }
-      if (Firebase.ready() && !Firebase.RTDB.readStream(&stream_fbdo)) {
-        Serial.println("[ERROR] Stream read error!");
-        streamActive = false;
-      }
-      */
-      // ===================================================================
-      // === END OF FIX ====================================================
-      // ===================================================================
+      // This runs on Core 0 and checks the Serial buffer for the "RESET_DEVICE" signal.
+      // It does NOT block the camera stream running on Core 1.
+      checkSerialCommands(); 
+      
+      // Note: RTDB Stream is intentionally disabled here to prevent Core 0/1 conflicts.
       break;
+      
     case ERROR:
       Serial.println("[ERROR] Halting.");
       delay(10000);
@@ -257,7 +288,6 @@ void connectToWiFi() {
   IPAddress ip(0, 0, 0, 0);
   IPAddress gateway(0, 0, 0, 0);
   IPAddress subnet(0, 0, 0, 0);
-
   if (!WiFi.config(ip, gateway, subnet, primaryDNS, secondaryDNS)) {
     Serial.println("[ERROR] WiFi.config() failed. Halting.");
     currentState = ERROR;
@@ -278,7 +308,6 @@ void connectToWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.print("\n[Wi-Fi] Connected! IP Address: ");
     Serial.println(WiFi.localIP());
-    
     if (feederId.length() == 0) {
       currentState = AWAITING_FEEDER_ID;
     } else {
@@ -297,7 +326,6 @@ void connectToWiFi() {
 void syncTime() {
     Serial.println("[TIME] Syncing with NTP server...");
     configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov");
-    
     time_t now = time(nullptr);
     int attempts = 0;
     while (now < 8 * 3600 * 2 && attempts < 60) {
@@ -397,7 +425,6 @@ static const char* _STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" 
 static const char* _STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
 static const char* _STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
 static const char* _FIRST_BOUNDARY = "--" PART_BOUNDARY "\r\n";
-
 esp_err_t stream_handler(httpd_req_t *req){
   camera_fb_t * fb = NULL;
   esp_err_t res = ESP_OK;
@@ -411,7 +438,6 @@ esp_err_t stream_handler(httpd_req_t *req){
   }
   
   httpd_resp_set_hdr(req, "Cache-Control", "no-cache, no-store, must-revalidate");
-
   while (true) {
     fb = esp_camera_fb_get();
     if (!fb) {
@@ -422,7 +448,6 @@ esp_err_t stream_handler(httpd_req_t *req){
     
     _jpg_buf_len = fb->len;
     _jpg_buf = fb->buf;
-    
     if(is_first_frame){
       res = httpd_resp_send_chunk(req, _FIRST_BOUNDARY, strlen(_FIRST_BOUNDARY));
       is_first_frame = false;
@@ -449,7 +474,7 @@ esp_err_t stream_handler(httpd_req_t *req){
     // ==========================================================
     // === STABILITY FIX: Change to 100ms for solid 10fps
     // ==========================================================
-    delay(100); 
+    delay(100);
   }
 
   Serial.println("[STREAM HANDLER] Client disconnected.");

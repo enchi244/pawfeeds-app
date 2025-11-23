@@ -6,14 +6,13 @@
 #include <time.h>
 #include <HX711.h>
 #include <HardwareSerial.h>
-#include <HTTPClient.h>     
-#include <ArduinoJson.h>    
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 // ========== USER CONFIGURATION ==========
 #define FIREBASE_PROJECT_ID "pawfeeds-v2"
 #define FIREBASE_DATABASE_URL "https://pawfeeds-v2-default-rtdb.asia-southeast1.firebasedatabase.app/"
 #define SERVICE_ACCOUNT_CLIENT_EMAIL "firebase-adminsdk-fbsvc@pawfeeds-v2.iam.gserviceaccount.com"
-// --- MAKE SURE THIS KEY IS CURRENT ---
 #define SERVICE_ACCOUNT_PRIVATE_KEY "-----BEGIN PRIVATE KEY-----\nMIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC+Sqt8BKfCEgbp\n/q4XmzzpsKwlsKJesbWN/Sp2PO7nVgPqwEz9YeCy/aI98IjyGY5hujaLLNgB0GYE\nNLvWkAf3T6VQPUa8SB28XU5sT7tfCJu/1F3yYYAVHHpbg2gbGxjgPWVlQ5arww57\nHHREzOUTRTO5k9hRAzzf1kdjBJbboewEEcIQH2uAdn+B9L58SOezjVONpr63+R5V\nWbZ7+B64BFE62Xsjcmk49OmHjKc+2ID80S6EWx6rxM5jGdTsUVtA0RISG5r1qeB/\nDazLCx1jexutuMHTogvAIirHGIMdOCW12USD8b+CRvP7Lsj6CwR91JSVm/b5P1pI\n0MNAgkfrAgMBAAECggEAO5iNHlki5P/aVHxjr5b5u8KOF3u7TmbfkmmAW+l3dNIW\nhfXV5uE5izUuE7H6YcApPGgiXvIbcG4BFT4iue7/3698+aVHOv5m+bBLOFa8OuYq\nSSjMh3WLtJDnrTN5bkvNPaVc1RsW3BJJvbrKmyWEdMWOjodEDxMxhHTKhLNSP9Rq\ncTz85kc4/IsXuAD6fmApysrWiVuS+vcIzFGCjqQDozojsd58KW6XFa8PEZ95bUbE\n/Q8ZAigB88un8+87NpLd/usUk2FWHNJz523AJUA4qQE0N8J6E/7+dJbRJ9Ucg6lk\nkO0fRiLO7c7o6/7bW1iy4Yq+ph5N3+vc2pYzVZIkAQKBgQD0AbH86UoJxroGh/id\n849814dnEGugSQ1C2XCPNpQy19WtyfZvMM5yphfxfxxohJwr+KyQBcfBatGo/ipV\n9cIJUOalKa+q9KzxLsSka41cvu4RsnVjWyVqGS4w/BdYFdTvNkuK3cGiK8qYwBaW\ni50PNrcCQ+7gmMCjkPJ6LDOh6wKBgQDHpRYRXk9ipsOw4KHBxn4rph8G6ooUIvzs\nPie0e+A+pz9grNDC7y0a+k8fA4eq/iJPmu+FvuJW4fahCkt98VuW0EJjcqtBNgCB\nYbOKn9H+V4WaQKCHYyhl/QxGio4qm4z34cEVt/kMGwGHlaX39RILc3kEq2RfTSc7\n2FikgZxyAQKBgQCz61wWpN5W/xXEIxaLQUCYSUQqFs2FTthcZoC82P3Fz6hbkQQJ\nUO+pUhdtltCXsNCHC8ISIHD+iYk3FtKYt7HvtJudRXOmluu+m0GcC0IdFRvuKKyu\nKlMYPKD2tatw5AgyqtJg/sr8jVXB9EGzmBajVTD0lqrZKUlCUmq480bPKQKBgQCp\nTo0qaYp1JOur4rQK+uQg7B4/5UL31LwdNJDDdJI1T+xldekMh3z+9euHZ5z0G9TJ\nIaGjEMAt4i8fXvWqdravbSn/4EzvXnaLQmnaU7LoORzqNYhtiF/ILhLs96+c3pFr\n3h2652vjIjvn2bcIUuLcpy6oERlr4Kg3DkAOMoSUAQKBgQCkTg6e4Ndg1d2SySFQ\n4h7YHQZ3larxK/03DFoElNIf/6zgiNL13+9nM3l4K8YAEG1OEcn5JaBdktmGrEWR\nA+zV7Qp/hZSVuOM4sxpGa7q94A5253tvLvegIvzhFYW4WQrVFadI5xZ1HaO2Ad9I\nKzz19+jbd085r+kyTM5X0UVzZA==\n-----END PRIVATE KEY-----\n"
 
 #define SERVO_BOWL_1_PIN 21
@@ -23,28 +22,26 @@
 #define HX711_BOWL2_DOUT_PIN 19
 #define HX711_BOWL2_SCK_PIN 18
 
-// --- SWAPPED PINS TO FIX READER MISMATCH ---
-// Reader 1 is now using Pins 4 and 2 (Previously Reader 2)
+// --- RFID PINS ---
 #define RFID1_RX_PIN 16
 #define RFID1_TX_PIN 17
-
-// Reader 2 is now using Pins 16 and 17 (Previously Reader 1)
 #define RFID2_RX_PIN 4
 #define RFID2_TX_PIN 2
 
-#define SLAVE_1_SERIAL_TX_PIN 13
-#define SLAVE_1_SERIAL_RX_PIN 12
+#define SLAVE_1_SERIAL_TX_PIN 33
+#define SLAVE_1_SERIAL_RX_PIN 32
 #define SLAVE_2_SERIAL_TX_PIN 15
 #define SLAVE_2_SERIAL_RX_PIN 14
 
 #define DISPENSE_MS_PER_GRAM 50
 const char* AP_SSID = "PawFeeds_Setup";
 const char* AP_PASSWORD = NULL;
+
 #define CALIBRATION_FACTOR_1 -7050.0
 #define CALIBRATION_FACTOR_2 -7050.0
 #define MAX_WEIGHT_GRAMS 2000.0
 
-// --- Global Objects & State Machine ---
+// --- Global Objects ---
 WiFiServer server(80);
 Preferences preferences;
 FirebaseData stream_fbdo;
@@ -57,47 +54,68 @@ HX711 loadCellBowl1;
 HX711 loadCellBowl2;
 HardwareSerial SerialRFID1(1);
 HardwareSerial SerialRFID2(2);
+
 String feederId = "";
 String streamPath = "/commands/";
 bool streamActive = false;
 unsigned long lastCmdTimestamp = 0;
 unsigned long lastWeightUpdateTime = 0;
-// --- NEW: Cooldown timer for stream restarts ---
-unsigned long lastStreamRestartAttempt = 0;
 
-// --- RFID State Variables ---
-enum RfidScanMode { IDLE, PAIRING, WAITING };
-RfidScanMode rfidScanMode = IDLE;
-String expectedRfidTag = "";
-unsigned long rfidModeStartTime = 0;
-int pendingBowl = 0;
-int pendingAmount = 0;
+// --- MULTI-BOWL STATE MANAGEMENT (Scheduling) ---
+struct BowlWaitState {
+    bool active;
+    String expectedTag;
+    int amount;
+    String scheduleId;
+    String petId;
+    unsigned long waitStartTime;
+};
+
+// Independent states for concurrency
+BowlWaitState bowl1State = {false, "", 0, "", "", 0};
+BowlWaitState bowl2State = {false, "", 0, "", "", 0};
+
+// --- NON-BLOCKING DISPENSER MANAGEMENT ---
+// This allows both servos to spin "at the same time" without pausing the code
+struct DispenserState {
+    bool isDispensing;
+    unsigned long startTime;
+    unsigned long duration;
+    Servo* servo;
+    int bowlId;
+};
+
+// Initialize with pointers to servos
+DispenserState dispenser1 = {false, 0, 0, &servoBowl1, 1};
+DispenserState dispenser2 = {false, 0, 0, &servoBowl2, 2};
+
+// --- Global Modes ---
+enum GlobalMode { NORMAL, PAIRING };
+GlobalMode globalMode = NORMAL;
 int pairingBowlTarget = 0;
+unsigned long pairingStartTime = 0;
 
-// --- NEW VARIABLES FOR WAITING MODE ---
-String currentScheduleId = "";
-// Stores the schedule ID for timeout reporting
-String currentPetId = "";
-// Stores the pet ID for timeout reporting
-
-// --- NEW: Buffers for byte-by-byte serial reading ---
+// --- Buffers ---
 String rfid1_buffer = "";
 String rfid2_buffer = "";
 unsigned long lastRfid1ByteTime = 0;
 unsigned long lastRfid2ByteTime = 0;
 const long rfidTagTimeout = 50;
-// 50ms pause = complete tag ID
 
+// --- SPAM FILTER VARS ---
+String lastScannedTag = "";
+unsigned long lastLogTime = 0;
 
 volatile bool newCommandAvailable = false;
-// --- NEW: Crash-fix flag (ONLY for non-pairing commands) ---
 volatile bool clearCommandNode = false;
+
 struct Command {
     int bowl;
     int amount;
 };
 Command pendingCommand;
-// --- UPDATED: DeviceState enum ---
+
+// --- Device State ---
 enum DeviceState {
     PROVISIONING_MODE,
     CONNECTING_WIFI,
@@ -106,6 +124,7 @@ enum DeviceState {
     AUTHENTICATING_FIREBASE,
     REGISTERING_FIREBASE,
     OPERATIONAL,
+    RESETTING,
     ERROR
 };
 DeviceState currentState = PROVISIONING_MODE;
@@ -121,7 +140,8 @@ void startProvisioningServer();
 void handleClient();
 String urlDecode(String str);
 String parseFeederIdFromResponse(String response);
-void dispenseFood(int bowl, int amount);
+void triggerDispense(int bowl, int amount); // REPLACED blocking dispenseFood
+void handleDispensers(); // NEW function
 void processPendingCommand();
 void startRTDBStream();
 void streamCallback(FirebaseStream data);
@@ -135,8 +155,14 @@ void updateRfidBuffers();
 void handleRfidRead(int readerNum, String scannedTagId);
 void checkRfidTimeouts();
 
+// --- SAFE Forwarding Function ---
 void forwardPacketToSlaves(const String& packet, const String& packetType) {
     Serial.printf("[PROVISIONING] Forwarding %s to slave cameras...\n", packetType.c_str());
+    
+    SerialRFID1.end(); 
+    SerialRFID2.end();
+    delay(50);
+
     Serial.println("[PROVISIONING] Contacting Slave 1...");
     Serial2.begin(9600, SERIAL_8N1, SLAVE_1_SERIAL_RX_PIN, SLAVE_1_SERIAL_TX_PIN);
     if (sendToSlave(Serial2, packet)) {
@@ -144,8 +170,8 @@ void forwardPacketToSlaves(const String& packet, const String& packetType) {
     } else {
         Serial.printf("[ERROR] Failed to send %s to Slave 1.\n", packetType.c_str());
     }
-    Serial2.end();
-    delay(500);
+    Serial2.end(); 
+    delay(200);
 
     Serial.println("[PROVISIONING] Contacting Slave 2...");
     Serial1.begin(9600, SERIAL_8N1, SLAVE_2_SERIAL_RX_PIN, SLAVE_2_SERIAL_TX_PIN);
@@ -154,8 +180,12 @@ void forwardPacketToSlaves(const String& packet, const String& packetType) {
     } else {
         Serial.printf("[ERROR] Failed to send %s to Slave 2.\n", packetType.c_str());
     }
-    Serial1.end();
+    Serial1.end(); 
+    
     Serial.println("[PROVISIONING] Forwarding complete.");
+    
+    SerialRFID1.begin(9600, SERIAL_8N1, RFID1_RX_PIN, RFID1_TX_PIN);
+    SerialRFID2.begin(9600, SERIAL_8N1, RFID2_RX_PIN, RFID2_TX_PIN);
 }
 
 void setup() {
@@ -163,6 +193,11 @@ void setup() {
     Serial.println("\n[PawFeeds] Booting...");
     servoBowl1.attach(SERVO_BOWL_1_PIN);
     servoBowl2.attach(SERVO_BOWL_2_PIN);
+    
+    // Ensure closed on boot
+    servoBowl1.write(90);
+    servoBowl2.write(90);
+
     Serial.println("[HX711] Initializing weight sensor 1...");
     loadCellBowl1.begin(HX711_BOWL1_DOUT_PIN, HX711_BOWL1_SCK_PIN);
     loadCellBowl1.set_scale(CALIBRATION_FACTOR_1);
@@ -172,15 +207,18 @@ void setup() {
     loadCellBowl2.begin(HX711_BOWL2_DOUT_PIN, HX711_BOWL2_SCK_PIN);
     loadCellBowl2.set_scale(CALIBRATION_FACTOR_2);
     loadCellBowl2.tare();
+
     Serial.println("[HX711] Ready. Please fill food containers now.");
     delay(5000);
 
     Serial.println("[RFID] Initializing RFID reader 1 (Bowl 1)...");
     SerialRFID1.begin(9600, SERIAL_8N1, RFID1_RX_PIN, RFID1_TX_PIN);
+
     Serial.println("[RFID] Initializing RFID reader 2 (Bowl 2)...");
     SerialRFID2.begin(9600, SERIAL_8N1, RFID2_RX_PIN, RFID2_TX_PIN);
 
     preferences.begin("pawfeeds", false);
+
     if (preferences.getString("ssid", "").length() > 0) {
         currentState = CONNECTING_WIFI;
     } else {
@@ -192,15 +230,12 @@ void setup() {
 void loop() {
     forwardSlaveLogs();
 
-    // --- UPDATED: RFID functions to call in loop ---
     if (currentState == OPERATIONAL) {
         updateRfidBuffers();
-        // Always read bytes from serial
         checkRfidTimeouts();
-        // Check for PAIRING/WAITING timeouts
+        handleDispensers(); // NEW: Check if we need to close any servos
     }
 
-    // --- UPDATED: Switch statement ---
     switch (currentState) {
         case PROVISIONING_MODE:
             handleClient();
@@ -211,7 +246,7 @@ void loop() {
         case SYNCING_TIME:
             syncTime();
             break;
-        case SYNCING_TIME_HTTP_FALLBACK: // <-- NEW CASE
+        case SYNCING_TIME_HTTP_FALLBACK: 
             syncTimeWithHttpFallback();
             break;
         case AUTHENTICATING_FIREBASE:
@@ -220,23 +255,14 @@ void loop() {
         case REGISTERING_FIREBASE:
             registerDeviceWithFirestore();
             break;
+        
         case OPERATIONAL:
-            // --- UPDATED STREAM LOGIC WITH COOLDOWN ---
             if (!streamActive) {
-                // Wait 2000ms before trying to restart stream to let socket close clean
-                if (millis() - lastStreamRestartAttempt > 2000) {
-                    startRTDBStream();
-                    lastStreamRestartAttempt = millis();
-                }
-            } else {
-                // Only try to read if stream thinks it is active
-                if (!Firebase.RTDB.readStream(&stream_fbdo)) {
-                    Serial.println("[ERROR] Stream read error! Marking stream as inactive.");
-                    Serial.println(stream_fbdo.errorReason());
-                    streamActive = false;
-                    // Ensure the object is cleared so we get a fresh SSL connection next time
-                    stream_fbdo.clear(); 
-                }
+                startRTDBStream();
+            }
+            if (Firebase.ready() && !Firebase.RTDB.readStream(&stream_fbdo)) {
+                Serial.println("[ERROR] Stream read error!");
+                streamActive = false;
             }
 
             if (newCommandAvailable) {
@@ -244,35 +270,44 @@ void loop() {
                 newCommandAvailable = false;
             }
 
-            // --- Crash-fix logic ---
-            // Check the flag in the main loop
             if (clearCommandNode) {
                 Serial.println("[SYSTEM] Clearing command node from main loop.");
                 String fullStreamPath = streamPath;
                 fullStreamPath.concat(feederId);
-                // We use setString("null") as this is what the stream callback expects
+                // We clear the node to signal receipt, but our INTERNAL state (bowl1State/bowl2State) remains valid
                 if (Firebase.RTDB.setString(&fbdo, fullStreamPath.c_str(), "null")) {
                     Serial.println("[SYSTEM] Command node cleared successfully.");
                 } else {
                     Serial.printf("[SYSTEM] FAILED to clear command node: %s\n", fbdo.errorReason().c_str());
                 }
                 clearCommandNode = false;
-                // Reset the flag
             }
-            // --- End of new block ---
 
-            // --- REMOVED 5-MINUTE UPDATE INTERVAL PER REQUEST ---
-            // The feeder will now only update weight when food is dispensed 
-            // or potentially on startup/registration.
+            if (millis() - lastWeightUpdateTime > 300000) { 
+                Serial.println("[SYSTEM] Time to update weight levels...");
+                updateFoodLevelsInFirestore();
+                lastWeightUpdateTime = millis();
+            }
             break;
+
+        case RESETTING:
+            streamActive = false; 
+            Serial.println("[RESET] Entered RESETTING state. Network tasks stopped.");
+            forwardPacketToSlaves("RESET_DEVICE\n", "RESET COMMAND");
+            Serial.println("[RESET] Waiting for slaves...");
+            delay(3000);
+            Serial.println("[RESET] Wiping Master credentials and rebooting...");
+            preferences.clear();
+            ESP.restart();
+            break;
+
         case ERROR:
-            // --- MODIFIED: NO MORE HALTING ---
-            Serial.println("[ERROR] Error state reached. Restarting system in 5 seconds...");
-            delay(5000);
-            ESP.restart(); // Reboot to try again fresh
+            Serial.println("[ERROR] Error state reached. Restarting system in 10 seconds...");
+            delay(10000);
+            ESP.restart();
             break;
     }
-    delay(100);
+    delay(10); // Decreased delay to make loop tighter for better reaction time
 }
 
 void tokenStatusCallback(TokenInfo info) {
@@ -280,8 +315,6 @@ void tokenStatusCallback(TokenInfo info) {
         Serial.println("[AUTH] Token obtained successfully.");
     } else if (info.status == token_status_error) {
         Serial.printf("[AUTH] Token error: %s\n", info.error.message.c_str());
-        // Retry auth instead of error
-        delay(2000);
     }
 }
 
@@ -300,18 +333,15 @@ void connectToWiFi() {
         currentState = SYNCING_TIME;
     } else {
         Serial.println("\n[WIFI] Failed! Retrying...");
-        // Stay in CONNECTING_WIFI state to retry, do not go to ERROR
         delay(2000);
     }
 }
 
 void syncTime() {
     Serial.println("[TIME] Syncing with NTP server...");
-    // --- Added "time.google.com" for more robustness ---
     configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov", "time.google.com");
     time_t now = time(nullptr);
     int attempts = 0;
-    // Check if time is still near epoch (1/1/1970)
     while (now < 8 * 3600 * 2 && attempts < 30) {
         delay(500);
         now = time(nullptr);
@@ -320,7 +350,6 @@ void syncTime() {
 
     if (now < 8 * 3600 * 2) {
         Serial.println("[TIME] Failed to sync time via NTP!");
-        // --- MODIFIED: Go to HTTP fallback instead of ERROR ---
         Serial.println("[TIME] Attempting HTTP time fallback...");
         currentState = SYNCING_TIME_HTTP_FALLBACK;
     } else {
@@ -335,11 +364,10 @@ void syncTime() {
 void syncTimeWithHttpFallback() {
     Serial.println("[TIME_HTTP] Fetching time from World Time API...");
     HTTPClient http;
-    // Use http, not https, to avoid SSL overhead on ESP32
     if (!http.begin("http://worldtimeapi.org/api/ip")) {
         Serial.println("[TIME_HTTP] Failed to begin HTTP client. Retrying NTP...");
         delay(3000);
-        currentState = SYNCING_TIME; // Loop back to NTP
+        currentState = SYNCING_TIME; 
         return;
     }
 
@@ -347,24 +375,16 @@ void syncTimeWithHttpFallback() {
     if (httpCode > 0) {
         if (httpCode == HTTP_CODE_OK) {
             String payload = http.getString();
-            Serial.println("[TIME_HTTP] Received response:");
-            Serial.println(payload);
-
-            // Use ArduinoJson (v6) to parse the response
-            // Allocate JSON document.
             DynamicJsonDocument doc(1024);
             DeserializationError error = deserializeJson(doc, payload);
             if (error) {
                 Serial.print(F("[TIME_HTTP] deserializeJson() failed: "));
                 Serial.println(error.f_str());
-                Serial.println("[TIME_HTTP] Retrying NTP...");
                 delay(3000);
-                currentState = SYNCING_TIME; // Loop back to NTP
+                currentState = SYNCING_TIME; 
             } else {
-                // Extract the 'unixtime' field
                 if (doc.containsKey("unixtime")) {
                     time_t now = doc["unixtime"];
-                    // Set the system time
                     struct timeval tv;
                     tv.tv_sec = now;
                     tv.tv_usec = 0;
@@ -378,22 +398,21 @@ void syncTimeWithHttpFallback() {
                 } else {
                       Serial.println("[TIME_HTTP] 'unixtime' field not found. Retrying NTP...");
                       delay(3000);
-                      currentState = SYNCING_TIME; // Loop back to NTP
+                      currentState = SYNCING_TIME; 
                 }
             }
         } else {
             Serial.printf("[TIME_HTTP] GET request failed, error: %s. Retrying NTP...\n", http.errorToString(httpCode).c_str());
             delay(3000);
-            currentState = SYNCING_TIME; // Loop back to NTP
+            currentState = SYNCING_TIME; 
         }
     } else {
         Serial.printf("[TIME_HTTP] GET request failed, error: %s. Retrying NTP...\n", http.errorToString(httpCode).c_str());
         delay(3000);
-        currentState = SYNCING_TIME; // Loop back to NTP
+        currentState = SYNCING_TIME; 
     }
     http.end();
 }
-
 
 void authenticateWithFirebase() {
     if(Firebase.ready()) {
@@ -414,15 +433,10 @@ void authenticateWithFirebase() {
     config.service_account.data.private_key = SERVICE_ACCOUNT_PRIVATE_KEY;
     config.token_status_callback = tokenStatusCallback;
     
-    // --- MEMORY OPTIMIZATION SETTINGS (UPDATED FOR STABILITY) ---
-    // RX set to 16384 (16KB) to handle initial SSL Handshake from Google
-    // TX set to 1024 (1KB) as we only send small commands
-    stream_fbdo.setBSSLBufferSize(16384, 1024);
-    fbdo.setBSSLBufferSize(16384, 1024);
+    stream_fbdo.setBSSLBufferSize(4096, 1024);
+    fbdo.setBSSLBufferSize(1024, 1024); 
     
-    // Increase socket timeout to handle network lag better
     config.timeout.socketConnection = 10000;
-    // 10 seconds
 
     Firebase.begin(&config, &auth);
     Firebase.reconnectWiFi(true);
@@ -437,7 +451,6 @@ void registerDeviceWithFirestore() {
     Serial.println("[FIREBASE] Registering device...");
     String owner_uid = preferences.getString("owner_uid", "");
     if (owner_uid.length() == 0) {
-        // Here we really can't recover without user input
         Serial.println("[ERROR] No Owner UID found. Returning to Provisioning.");
         currentState = PROVISIONING_MODE;
         startProvisioningServer();
@@ -480,7 +493,6 @@ void registerDeviceWithFirestore() {
             } else {
                 Serial.printf("[ERROR] Failed to patch user: %s. Retrying...\n", fbdo.errorReason().c_str());
                 delay(2000);
-                // Try again next loop, stay in REGISTERING_FIREBASE
             }
         } else {
             Serial.println("[ERROR] Failed to parse feeder ID. Retrying...");
@@ -491,7 +503,6 @@ void registerDeviceWithFirestore() {
         delay(2000);
     }
 }
-
 
 void startProvisioningServer() {
     Serial.print("[PROVISIONING] Starting Access Point: ");
@@ -611,52 +622,68 @@ String urlDecode(String str) {
 void processPendingCommand() {
     if (pendingCommand.amount > 0 && pendingCommand.bowl > 0) {
         Serial.printf("[COMMAND] Processing FEED NOW command! Bowl: %d, Amount: %d\n", pendingCommand.bowl, pendingCommand.amount);
-        dispenseFood(pendingCommand.bowl, pendingCommand.amount);
-
-        // --- This command is safe to clear, so we use the flag ---
+        triggerDispense(pendingCommand.bowl, pendingCommand.amount);
         clearCommandNode = true;
     }
 }
 
-void dispenseFood(int bowlNumber, int amount) {
-    Serial.printf("[SERVO] Dispensing %d grams from bowl %d.\n", amount, bowlNumber);
-    Servo* targetServo = nullptr;
-    if (bowlNumber == 1) targetServo = &servoBowl1;
-    else if (bowlNumber == 2) targetServo = &servoBowl2;
-    if (targetServo != nullptr) {
-        long dispenseDuration = amount * DISPENSE_MS_PER_GRAM;
-        Serial.printf("[SERVO] Rotating for %ld ms.\n", dispenseDuration);
+// ==========================================================
+// --- NON-BLOCKING DISPENSER LOGIC ---
+// ==========================================================
 
-        targetServo->write(0);
-        delay(dispenseDuration);
-        targetServo->write(90);
+void triggerDispense(int bowlNumber, int amount) {
+    long duration = amount * DISPENSE_MS_PER_GRAM;
+    Serial.printf("[SERVO] Triggering dispense for Bowl %d (Duration: %ld ms)\n", bowlNumber, duration);
 
-        delay(2000);
-
-        updateFoodLevelsInFirestore();
+    if (bowlNumber == 1) {
+        if (!dispenser1.isDispensing) {
+            dispenser1.isDispensing = true;
+            dispenser1.startTime = millis();
+            dispenser1.duration = duration;
+            dispenser1.servo->write(0); // Open
+        }
+    } 
+    else if (bowlNumber == 2) {
+        if (!dispenser2.isDispensing) {
+            dispenser2.isDispensing = true;
+            dispenser2.startTime = millis();
+            dispenser2.duration = duration;
+            dispenser2.servo->write(0); // Open
+        }
     }
-    // --- NEW: CLEAR WAITING STATE AFTER SUCCESSFUL FEED ---
-    // If we were in WAITING mode, clear the state.
-    if (rfidScanMode == WAITING) {
-        rfidScanMode = IDLE;
-        expectedRfidTag = "";
-        currentScheduleId = "";
-        currentPetId = "";
+}
+
+void handleDispensers() {
+    unsigned long currentMillis = millis();
+
+    // Check Bowl 1
+    if (dispenser1.isDispensing) {
+        if (currentMillis - dispenser1.startTime > dispenser1.duration) {
+            dispenser1.servo->write(90); // Close
+            dispenser1.isDispensing = false;
+            Serial.println("[SERVO] Bowl 1 Dispense Complete.");
+            // We update levels here instead of blocking the loop
+            updateFoodLevelsInFirestore();
+        }
     }
-    // --- End NEW: CLEAR WAITING STATE ---
+
+    // Check Bowl 2
+    if (dispenser2.isDispensing) {
+        if (currentMillis - dispenser2.startTime > dispenser2.duration) {
+            dispenser2.servo->write(90); // Close
+            dispenser2.isDispensing = false;
+            Serial.println("[SERVO] Bowl 2 Dispense Complete.");
+            updateFoodLevelsInFirestore();
+        }
+    }
 }
 
 void startRTDBStream() {
     if (feederId.length() == 0 || !Firebase.ready()) return;
-
-    // ============================================================
-    // === IMPLEMENTED PRESENCE / ONLINE STATUS HERE            ===
-    // ============================================================
     String statusPath = "/feeders/";
     statusPath += feederId;
     statusPath += "/status";
 
-    // 1. Set status to "online" immediately
     Serial.println("[PRESENCE] Setting status to online...");
     if (Firebase.RTDB.setString(&fbdo, statusPath.c_str(), "online")) {
         Serial.println("[PRESENCE] Status set to online.");
@@ -664,20 +691,12 @@ void startRTDBStream() {
         Serial.printf("[PRESENCE] Failed to set online status: %s\n", fbdo.errorReason().c_str());
     }
 
-    // --- FIX: REMOVED "OnDisconnect" LOGIC DUE TO VERSION MISMATCH ---
-    // The strict library version (~4.4.1) causes a compile error here.
-    // The device will still show as "online" via the setString above.
-    // ============================================================
-
-
     String fullStreamPath = streamPath;
     fullStreamPath.concat(feederId);
     Serial.print("[STREAM] Starting stream on path: ");
     Serial.println(fullStreamPath);
     
-    // --- Clear any old session data before starting ---
     stream_fbdo.clear();
-    
     if (!Firebase.RTDB.beginStream(&stream_fbdo, fullStreamPath.c_str())) {
         Serial.printf("[STREAM] Could not begin stream: %s\n", stream_fbdo.errorReason().c_str());
         return;
@@ -706,103 +725,100 @@ void streamCallback(FirebaseStream data) {
             if (json.get(result, "timestamp")) newTimestamp = result.to<unsigned long>();
             if (json.get(result, "bowl")) bowl = result.to<int>();
             if (json.get(result, "amount")) amount = result.to<int>();
-            if (newTimestamp > 0 && newTimestamp > lastCmdTimestamp) {
+            
+            if (newTimestamp > 0 && newTimestamp >= lastCmdTimestamp) {
                 lastCmdTimestamp = newTimestamp;
                 pendingCommand = {bowl, amount};
                 newCommandAvailable = true;
-                if (rfidScanMode == WAITING) {
-                    Serial.println("[RFID] Feed Now received, cancelling WAITING mode.");
-                    rfidScanMode = IDLE;
-                    expectedRfidTag = "";
-                    currentScheduleId = ""; // Clear new state variables
-                    currentPetId = "";
+                
+                if (bowl == 1 && bowl1State.active) {
+                    Serial.println("[RFID] Feed Now for Bowl 1 received, cancelling pending schedule.");
+                    bowl1State.active = false;
+                }
+                if (bowl == 2 && bowl2State.active) {
+                    Serial.println("[RFID] Feed Now for Bowl 2 received, cancelling pending schedule.");
+                    bowl2State.active = false;
                 }
             }
         }
         else if (command == "scan_tag_bowl_1") {
             Serial.println("[RFID] Entering PAIRING mode for BOWL 1 by app request.");
-            rfidScanMode = PAIRING;
+            globalMode = PAIRING;
             pairingBowlTarget = 1;
-            rfidModeStartTime = millis();
+            pairingStartTime = millis();
         }
         else if (command == "scan_tag_bowl_2") {
             Serial.println("[RFID] Entering PAIRING mode for BOWL 2 by app request.");
-            rfidScanMode = PAIRING;
+            globalMode = PAIRING;
             pairingBowlTarget = 2;
-            rfidModeStartTime = millis();
+            pairingStartTime = millis();
         }
         else if (command == "cancel_scan_bowl_1" || command == "cancel_scan_bowl_2") {
-            if (rfidScanMode == PAIRING) {
+            if (globalMode == PAIRING) {
                 Serial.printf("[RFID] Cancelling PAIRING mode for bowl %d.\n", (command == "cancel_scan_bowl_1" ? 1 : 2));
-                rfidScanMode = IDLE;
+                globalMode = NORMAL;
                 pairingBowlTarget = 0;
             }
-            // --- FIX: Use flag, this is a "safe" clear ---
             clearCommandNode = true;
         }
         else if (command == "await_rfid") {
             unsigned long newTimestamp = 0;
             if (json.get(result, "timestamp")) newTimestamp = result.to<unsigned long>();
 
-            if (newTimestamp > 0 && newTimestamp > lastCmdTimestamp) {
+            if (newTimestamp > 0 && newTimestamp >= lastCmdTimestamp) {
                 lastCmdTimestamp = newTimestamp;
                 int bowl = 0;
                 int amount = 0;
                 String tag = "";
-                // --- NEW FIELDS ---
                 String scheduleId = "";
                 String petId = "";
-                // --- End NEW FIELDS ---
 
                 if (json.get(result, "bowl")) bowl = result.to<int>();
                 if (json.get(result, "amount")) amount = result.to<int>();
                 if (json.get(result, "expectedTagId")) tag = result.to<String>();
-                // --- NEW READS ---
                 if (json.get(result, "scheduleId")) scheduleId = result.to<String>();
                 if (json.get(result, "petId")) petId = result.to<String>();
-                // --- End NEW READS ---
                 
                 if (bowl > 0 && amount > 0 && tag.length() > 0 && scheduleId.length() > 0 && petId.length() > 0) {
                     Serial.printf("[RFID] Entering WAITING mode for Bowl %d, Tag: %s, Schedule: %s\n", bowl, tag.c_str(), scheduleId.c_str());
-                    rfidScanMode = WAITING;
-                    expectedRfidTag = tag;
-                    pendingBowl = bowl;
-                    pendingAmount = amount;
-                    rfidModeStartTime = millis();
-                    // --- SAVE NEW STATE ---
-                    currentScheduleId = scheduleId;
-                    currentPetId = petId;
-                    // --- End SAVE NEW STATE ---
+                    
+                    if (bowl == 1) {
+                        bowl1State.active = true;
+                        bowl1State.expectedTag = tag;
+                        bowl1State.amount = amount;
+                        bowl1State.scheduleId = scheduleId;
+                        bowl1State.petId = petId;
+                        bowl1State.waitStartTime = millis();
+                        Serial.println("[RFID] Bowl 1 is now active.");
+                    } else if (bowl == 2) {
+                        bowl2State.active = true;
+                        bowl2State.expectedTag = tag;
+                        bowl2State.amount = amount;
+                        bowl2State.scheduleId = scheduleId;
+                        bowl2State.petId = petId;
+                        bowl2State.waitStartTime = millis();
+                        Serial.println("[RFID] Bowl 2 is now active.");
+                    }
+                    
                 } else {
-                     Serial.println("[RFID] Invalid await_rfid command received (missing parameters).");
-                     // --- FIX: Use flag, this is a "safe" clear ---
-                     clearCommandNode = true;
+                      Serial.println("[RFID] Invalid await_rfid command received (missing parameters).");
+                      clearCommandNode = true;
                 }
             }
         }
         else if (command == "reset_device") {
-            Serial.println("[SYSTEM] Reset command received. Clearing credentials and restarting.");
-            preferences.clear();
-            ESP.restart();
-        } else if (command.length() > 0) {
+            Serial.println("[SYSTEM] Reset command received. Transitioning to RESETTING state.");
+            currentState = RESETTING;
+        }
+        else if (command.length() > 0) {
             Serial.printf("[SYSTEM] Unknown command received: %s. Deleting.\n", command.c_str());
-            // --- FIX: Use flag, this is a "safe" clear ---
             clearCommandNode = true;
         }
     }
-    // This is the check that confirms the app-side logic will work
     else if (data.eventType() == "put" && data.dataPath() == "/" && data.stringData() == "null") {
-        if(rfidScanMode == WAITING) {
-             Serial.println("[RFID] Await command node deleted externally. Cancelling WAITING mode.");
-             rfidScanMode = IDLE;
-             expectedRfidTag = "";
-             currentScheduleId = ""; // Clear new state variables
-             currentPetId = "";
-        }
-        // --- NEW: Add logic to cancel PAIRING mode if app clears the command ---
-        if(rfidScanMode == PAIRING) {
+        if(globalMode == PAIRING) {
              Serial.println("[RFID] Pairing command node deleted externally. Cancelling PAIRING mode.");
-             rfidScanMode = IDLE;
+             globalMode = NORMAL;
              pairingBowlTarget = 0;
         }
     }
@@ -887,26 +903,18 @@ void updateFoodLevelsInFirestore() {
 }
 
 // ==========================================================
-// --- RFID READING LOGIC (UNCHANGED) ---
+// --- RFID READING LOGIC (Concurrent) ---
 // ==========================================================
 
-/**
- * @brief This function is called continuously from the main loop.
- * It reads from the serial ports byte-by-byte and builds a string.
- * When a 50ms pause is detected, it processes the complete tag.
- */
 void updateRfidBuffers() {
-    // Check Reader 1
     while (SerialRFID1.available() > 0) {
         char c = SerialRFID1.read();
-        // Add to buffer (and prevent massive buffer overflow)
         if (rfid1_buffer.length() < 50) {
             rfid1_buffer += c;
         }
         lastRfid1ByteTime = millis();
     }
 
-    // Check Reader 2
     while (SerialRFID2.available() > 0) {
         char c = SerialRFID2.read();
         if (rfid2_buffer.length() < 50) {
@@ -915,143 +923,152 @@ void updateRfidBuffers() {
         lastRfid2ByteTime = millis();
     }
 
-    // Process Reader 1 buffer if timeout is met
     if (rfid1_buffer.length() > 0 && (millis() - lastRfid1ByteTime > rfidTagTimeout)) {
         rfid1_buffer.trim();
-        // Clean up whitespace
         if (rfid1_buffer.length() > 0) {
             handleRfidRead(1, rfid1_buffer);
         }
         rfid1_buffer = "";
-        // Clear buffer
     }
 
-    // Process Reader 2 buffer if timeout is met
     if (rfid2_buffer.length() > 0 && (millis() - lastRfid2ByteTime > rfidTagTimeout)) {
         rfid2_buffer.trim();
         if (rfid2_buffer.length() > 0) {
             handleRfidRead(2, rfid2_buffer);
         }
         rfid2_buffer = "";
-        // Clear buffer
     }
 }
 
-/**
- * @brief This function is called by updateRfidBuffers() ONLY when a
- * complete tag ID has been received.
- * @param readerNum The reader that scanned the tag (1 or 2).
- * @param scannedTagId The tag ID that was read.
- */
 void handleRfidRead(int readerNum, String scannedTagId) {
-    // --- NEW, SAFER CLEANING LOGIC ---
     String cleanedTagId = "";
     for (size_t i = 0; i < scannedTagId.length(); i++) {
         char c = scannedTagId.charAt(i);
-        // Only add ASCII letters (A-Z, a-z) and numbers (0-9)
-        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+        if ((c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f') || (c >= '0' && c <= '9')) {
             cleanedTagId += c;
         }
     }
-    // --- END NEW LOGIC ---
+
+    if (cleanedTagId.length() < 8 || cleanedTagId.length() > 32) { 
+        Serial.printf("[RFID] Ignored noise (Length %d): %s\n", cleanedTagId.length(), cleanedTagId.c_str());
+        return; 
+    }
+
+    // --- SPAM FILTER: Deduplication ---
+    if (cleanedTagId == lastScannedTag && (millis() - lastLogTime < 2000)) {
+        lastLogTime = millis();
+        return;
+    }
+    lastScannedTag = cleanedTagId;
+    lastLogTime = millis();
 
     Serial.printf("[RFID] Reader %d Scanned! Raw: %s, Cleaned: %s\n",
                   readerNum, scannedTagId.c_str(), cleanedTagId.c_str());
-    if (rfidScanMode == IDLE) {
-        Serial.println("[RFID] Scan in IDLE mode. Ignoring.");
-        return;
-        // Not waiting for a tag, do nothing.
-    }
-
-    // Handle based on mode
-    if (rfidScanMode == PAIRING) {
+                  
+    if (globalMode == PAIRING) {
         if (pairingBowlTarget == readerNum) {
             Serial.printf("[RFID] Tag captured for PAIRING Bowl %d. Sending to app...\n", readerNum);
-            // Send the scanned tag ID to the app via RTDB
             String scanPath = "scan_pairing/";
             scanPath.concat(feederId);
             scanPath.concat("/bowl_");
             scanPath.concat(readerNum);
 
             FirebaseJson content;
-            content.set("tagId", cleanedTagId); // <-- USE CLEANED ID
+            content.set("tagId", cleanedTagId); 
             content.set("timestamp", (unsigned long)millis());
-            // This is safe because it's not the path we are streaming
-            Firebase.RTDB.setJSON(&fbdo, scanPath.c_str(), &content);
-            rfidScanMode = IDLE; // Exit pairing mode
-            pairingBowlTarget = 0;
-            // The app will see the tag on scan_pairing/ and clear the command.
-        } else {
-            Serial.printf("[RFID] Tag scanned on wrong reader during pairing (Expected: %d, Scanned: %d). Ignoring.\n", pairingBowlTarget, readerNum);
-        }
-    }
-    else if (rfidScanMode == WAITING) {
-        Serial.printf("[RFID] Comparing scanned tag %s (Reader %d) to expected tag %s for Bowl %d\n",
-                      cleanedTagId.c_str(), readerNum, expectedRfidTag.c_str(), pendingBowl);
-        // <-- USE CLEANED ID
-
-        // Check if the tag ID matches AND it was read by the correct reader
-        if (cleanedTagId == expectedRfidTag && readerNum == pendingBowl) { // <-- USE CLEANED ID
-            Serial.println("[RFID] MATCH! Dispensing food.");
-            dispenseFood(pendingBowl, pendingAmount);
-
-            // The dispenseFood function clears the local WAITING state
-            // The feeder clears its command node as the feed was successful
-            clearCommandNode = true;
-        } else {
-            if (cleanedTagId != expectedRfidTag) { // <-- USE CLEANED ID
-                Serial.println("[RFID] Tag ID does not match. Ignoring.");
-            } else { // Tag ID matched, but wrong reader
-                Serial.printf("[RFID] Tag ID matches, but wrong reader (Scanned: %d, Expected Bowl: %d). Ignoring.\n", readerNum, pendingBowl);
+            
+            bool success = false;
+            for(int i=0; i<3; i++) {
+                if(Firebase.RTDB.setJSON(&fbdo, scanPath.c_str(), &content)) {
+                    success = true;
+                    break;
+                } else {
+                    Serial.printf("[RFID] Retrying send... (%d/3)\n", i+1);
+                    delay(200);
+                }
             }
-            // Do nothing, keep waiting
+            
+            if(success) {
+                 globalMode = NORMAL; 
+                 pairingBowlTarget = 0;
+            } else {
+                 Serial.printf("[ERROR] Failed to send pairing data: %s\n", fbdo.errorReason().c_str());
+            }
         }
+        return; 
+    }
+
+    // --- SIMULTANEOUS DISPENSE LOGIC ---
+    // Because triggerDispense is now non-blocking, we don't need a queue.
+    // If Bowl 1 scans and matches -> Servo 1 starts opening.
+    // Loop continues immediately.
+    // If Bowl 2 scans 50ms later -> Servo 2 starts opening (while Servo 1 is still open).
+    
+    if (readerNum == 1 && bowl1State.active) {
+        Serial.printf("[RFID] Checking Bowl 1 Schedule. Expected: %s, Scanned: %s\n", bowl1State.expectedTag.c_str(), cleanedTagId.c_str());
+        if (cleanedTagId.equalsIgnoreCase(bowl1State.expectedTag)) {
+            Serial.println("[RFID] Bowl 1 MATCH! Triggering dispense.");
+            triggerDispense(1, bowl1State.amount);
+            bowl1State.active = false;
+            clearCommandNode = true;
+        }
+    } else if (readerNum == 2 && bowl2State.active) {
+        Serial.printf("[RFID] Checking Bowl 2 Schedule. Expected: %s, Scanned: %s\n", bowl2State.expectedTag.c_str(), cleanedTagId.c_str());
+        if (cleanedTagId.equalsIgnoreCase(bowl2State.expectedTag)) {
+            Serial.println("[RFID] Bowl 2 MATCH! Triggering dispense.");
+            triggerDispense(2, bowl2State.amount);
+            bowl2State.active = false; 
+            clearCommandNode = true;
+        }
+    } else {
+        Serial.println("[RFID] Tag scanned but no active schedule for this bowl.");
     }
 }
 
-/**
- * @brief This function checks for PAIRING or WAITING timeouts.
- * It is called continuously from the main loop.
- */
 void checkRfidTimeouts() {
-    if (rfidScanMode == IDLE) return;
-    unsigned long elapsed = millis() - rfidModeStartTime;
-    if (rfidScanMode == PAIRING && elapsed > 30000) { // 30 second timeout
-        Serial.printf("[RFID] PAIRING mode for bowl %d timed out.\n", pairingBowlTarget);
-        rfidScanMode = IDLE;
-        pairingBowlTarget = 0;
+    unsigned long currentMillis = millis();
 
-        // The app must handle this timeout and clear the command.
-    }
-    // --- UPDATED: WAITING TIMEOUT TO 2 MINUTES (120000 MS) ---
-    if (rfidScanMode == WAITING && elapsed > 120000) { // 2 minute timeout
-        Serial.printf("[RFID] WAITING mode for schedule %s (bowl %d) timed out. Reporting to RTDB.\n", currentScheduleId.c_str(), pendingBowl);
-        // 1. REPORT TIMEOUT TO RTDB (This triggers the Cloud Function to send the notification)
+    if (bowl1State.active && (currentMillis - bowl1State.waitStartTime > 120000)) {
+        Serial.printf("[RFID] WAITING mode for Bowl 1 (Schedule %s) timed out.\n", bowl1State.scheduleId.c_str());
+        
         String timeoutPath = "feeder_timeout_events/";
         timeoutPath.concat(feederId);
-        // Use a unique key (timestamp/millis) to ensure onValueCreated triggers
         timeoutPath.concat("/");
-        timeoutPath.concat(String(millis()));
+        timeoutPath.concat(String(currentMillis));
         FirebaseJson content;
-        content.set("scheduleId", currentScheduleId);
-        content.set("petId", currentPetId);
-        content.set("timestamp", (unsigned long)millis());
+        content.set("scheduleId", bowl1State.scheduleId);
+        content.set("petId", bowl1State.petId);
+        content.set("timestamp", (unsigned long)currentMillis);
 
         if (Firebase.RTDB.setJSON(&fbdo, timeoutPath.c_str(), &content)) {
-            Serial.println("[RFID] Timeout reported to RTDB successfully.");
-        } else {
-            Serial.printf("[RFID] FAILED to report timeout: %s\n", fbdo.errorReason().c_str());
+            Serial.println("[RFID] Timeout 1 reported to RTDB.");
         }
-
-        // 2. CLEAR LOCAL WAITING STATE & COMMAND NODE
-        rfidScanMode = IDLE;
-        expectedRfidTag = "";
-        currentScheduleId = "";
-        currentPetId = "";
-        pendingBowl = 0;
-        pendingAmount = 0;
-        // Queue command node clear
-        Serial.println("[RFID] Waiting timed out, queueing command clear.");
+        bowl1State.active = false;
         clearCommandNode = true;
+    }
+
+    if (bowl2State.active && (currentMillis - bowl2State.waitStartTime > 120000)) {
+        Serial.printf("[RFID] WAITING mode for Bowl 2 (Schedule %s) timed out.\n", bowl2State.scheduleId.c_str());
+        
+        String timeoutPath = "feeder_timeout_events/";
+        timeoutPath.concat(feederId);
+        timeoutPath.concat("/");
+        timeoutPath.concat(String(currentMillis));
+        FirebaseJson content;
+        content.set("scheduleId", bowl2State.scheduleId);
+        content.set("petId", bowl2State.petId);
+        content.set("timestamp", (unsigned long)currentMillis);
+
+        if (Firebase.RTDB.setJSON(&fbdo, timeoutPath.c_str(), &content)) {
+            Serial.println("[RFID] Timeout 2 reported to RTDB.");
+        }
+        bowl2State.active = false;
+        clearCommandNode = true;
+    }
+
+    if (globalMode == PAIRING && (currentMillis - pairingStartTime > 30000)) {
+        Serial.printf("[RFID] PAIRING mode for bowl %d timed out.\n", pairingBowlTarget);
+        globalMode = NORMAL;
+        pairingBowlTarget = 0;
     }
 }
