@@ -3,6 +3,7 @@ import { Stack, useRouter } from 'expo-router';
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuth } from '../../context/AuthContext'; // Import useAuth to check status
 
 const COLORS = {
   primary: '#8C6E63',
@@ -15,6 +16,7 @@ const COLORS = {
 
 export default function GetStartedScreen() {
   const router = useRouter();
+  const { authStatus } = useAuth(); // Get the current auth status
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -39,13 +41,18 @@ export default function GetStartedScreen() {
           <Text style={styles.buttonText}>Get Started</Text>
         </TouchableOpacity>
 
-        {/* MODIFIED: Added Cancel button to return to dashboard */}
-        <TouchableOpacity
-          style={styles.secondaryButton}
-          onPress={() => router.replace('/(tabs)')}
-        >
-          <Text style={styles.secondaryButtonText}>Cancel</Text>
-        </TouchableOpacity>
+        {/* Only show the Cancel button if the user already has a feeder.
+          If they are 'authenticated_no_feeder', they MUST complete setup 
+          and should not be allowed to go to the empty dashboard.
+        */}
+        {authStatus === 'authenticated_with_feeder' && (
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => router.replace('/(tabs)')}
+          >
+            <Text style={styles.secondaryButtonText}>Cancel</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -107,7 +114,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: COLORS.text,
   },
-  // Added styles for the Cancel button
   secondaryButton: {
     marginTop: 16,
     paddingVertical: 12,

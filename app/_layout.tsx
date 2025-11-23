@@ -16,10 +16,10 @@ function RootLayoutNav() {
   useEffect(() => {
     if (isLoading) return;
 
-    // FIX: Removed '(auth)' check as the folder does not exist, causing a TS type overlap error.
+    // Define route groups for cleaner logic
     const inAuthGroup = segments[0] === 'login' || segments[0] === 'signup';
     const inAdminGroup = segments[0] === 'admin';
-    const inAppGroup = segments[0] === '(tabs)';
+    const inTabsGroup = segments[0] === '(tabs)';
 
     // --- 1. HANDLE ADMIN REDIRECT ---
     if (authStatus === 'authenticated_admin') {
@@ -28,17 +28,23 @@ function RootLayoutNav() {
         router.replace('/admin');
       }
     } 
-    // --- 2. HANDLE USER REDIRECT ---
-    else if (
-      authStatus === 'authenticated_no_feeder' || 
-      authStatus === 'authenticated_with_feeder'
-    ) {
-      // If logged in user is in auth pages or admin pages, send to tabs
+    // --- 2. HANDLE AUTHENTICATED USER (WITH FEEDER) ---
+    else if (authStatus === 'authenticated_with_feeder') {
+      // If logged in and has devices, they shouldn't be in Auth or Admin pages.
+      // We allow them to be in Tabs (Dashboard) or Provisioning (adding new device).
       if (inAuthGroup || inAdminGroup) {
          router.replace('/(tabs)');
       }
     } 
-    // --- 3. HANDLE UNAUTHENTICATED ---
+    // --- 3. HANDLE AUTHENTICATED USER (NO FEEDER) ---
+    else if (authStatus === 'authenticated_no_feeder') {
+      // New users or those who reset their only device MUST go to provisioning.
+      // They cannot access the Dashboard (Tabs) until they add a device.
+      if (inAuthGroup || inAdminGroup || inTabsGroup) {
+         router.replace('/(provisioning)');
+      }
+    }
+    // --- 4. HANDLE UNAUTHENTICATED ---
     else if (authStatus === 'unauthenticated') {
       if (!inAuthGroup) {
         router.replace('/login');
@@ -56,7 +62,7 @@ function RootLayoutNav() {
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="(provisioning)" options={{ headerShown: false }} />
-      {/* --- ADD THE ADMIN ROUTE --- */}
+      
       <Stack.Screen name="admin" options={{ headerShown: false }} /> 
       
       <Stack.Screen name="pet/[id]" options={{ headerShown: false, presentation: 'modal' }} />
