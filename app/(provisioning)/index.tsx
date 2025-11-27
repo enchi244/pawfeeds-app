@@ -1,9 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { signOut } from 'firebase/auth'; // Import signOut
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from '../../context/AuthContext'; // Import useAuth to check status
+import { useAuth } from '../../context/AuthContext';
+import { auth } from '../../firebaseConfig'; // Import auth instance
 
 const COLORS = {
   primary: '#8C6E63',
@@ -17,6 +19,16 @@ const COLORS = {
 export default function GetStartedScreen() {
   const router = useRouter();
   const { authStatus } = useAuth(); // Get the current auth status
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      // Redirect to login/welcome screen after logout
+      router.replace('/');
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -41,14 +53,13 @@ export default function GetStartedScreen() {
           <Text style={styles.buttonText}>Get Started</Text>
         </TouchableOpacity>
 
-        {/* Only show the Cancel button if the user already has a feeder.
-          If they are 'authenticated_no_feeder', they MUST complete setup 
-          and should not be allowed to go to the empty dashboard.
+        {/* Show the Logout button if the user is authenticated (with or without a feeder).
+          This allows users to exit the provisioning flow if they are stuck or change their mind.
         */}
-        {authStatus === 'authenticated_with_feeder' && (
+        {(authStatus === 'authenticated_with_feeder' || authStatus === 'authenticated_no_feeder') && (
           <TouchableOpacity
             style={styles.secondaryButton}
-            onPress={() => router.replace('/(tabs)')}
+            onPress={handleLogout}
           >
             <Text style={styles.secondaryButtonText}>Cancel</Text>
           </TouchableOpacity>
