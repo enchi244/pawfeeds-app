@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
 import { GoogleAuthProvider, signInWithCredential, signInWithEmailAndPassword } from 'firebase/auth';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore'; // Added Firestore imports
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -12,7 +13,7 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { auth } from '../firebaseConfig'; // Your existing firebase config
+import { auth, db } from '../firebaseConfig'; // Added db import
 
 // 1. IMPORT THE NEW MODULES
 import {
@@ -56,10 +57,33 @@ export default function LoginScreen() {
       const googleCredential = GoogleAuthProvider.credential(idToken);
 
       // Sign-in to Firebase with the credential
-      await signInWithCredential(auth, googleCredential);
+      const userCredential = await signInWithCredential(auth, googleCredential);
+      const user = userCredential.user;
+
+      // 4. CHECK AND CREATE FIRESTORE USER DOCUMENT
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (!userDocSnap.exists()) {
+        // Parse name from displayName (fallback to empty string if missing)
+        const displayName = user.displayName || '';
+        const nameParts = displayName.trim().split(/\s+/);
+        
+        // Simple heuristic: First word is firstName, rest is lastName
+        const firstName = nameParts.length > 0 ? nameParts[0] : '';
+        const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+
+        await setDoc(userDocRef, {
+          uid: user.uid,
+          firstName: firstName,
+          lastName: lastName,
+          email: user.email ? user.email.toLowerCase() : '',
+          createdAt: serverTimestamp(),
+        });
+      }
       
-      // AuthContext should handle the redirect now
-      // router.replace('/(tabs)');
+      // Explicitly redirect to tabs on success, similar to email login
+      router.replace('/(tabs)');
 
     } catch (error: any) {
       if (error.code === statusCodes.SIGN_IN_CANCELLED) {

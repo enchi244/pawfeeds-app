@@ -340,7 +340,15 @@ export default function DashboardScreen() {
         style: "destructive", 
         onPress: async () => {
           try {
-            await GoogleSignin.signOut();
+            // Attempt Google Sign-Out independently so it doesn't block Firebase Sign-Out
+            try {
+              await GoogleSignin.signOut();
+            } catch (googleError) {
+              // This is expected if the user didn't sign in with Google or API is not connected
+              console.log("Google Sign-Out skipped or failed:", googleError);
+            }
+
+            // Always perform Firebase Sign-Out
             await signOut(auth);
           } catch (error) {
             console.error("Logout Error:", error);
