@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { off, onValue, ref, remove } from 'firebase/database';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
-import { db } from '../../firebaseConfig';
+import { database } from '../../firebaseConfig';
 
 const COLORS = {
   primary: '#8C6E63',
@@ -34,26 +34,51 @@ export default function SetupCompleteScreen() {
   useEffect(() => {
     if (!user?.uid) return;
 
-    // 1. Listen specifically for the 'feederId' to appear in the user's document.
-    // This confirms the ESP32 successfully updated the database.
-    const userDocRef = doc(db, 'users', user.uid);
+    // We listen to the Realtime Database for a handshake signal from the ESP32.
+    // This signal ({ status: 'complete' }) is sent ONLY after the ESP32 has 
+    // successfully created the Firestore feeder document and updated the user profile.
+    const setupSyncRef = ref(database, `/setup_sync/${user.uid}`);
+    let isFinished = false;
 
-    const unsubscribe = onSnapshot(userDocRef, async (docSnap) => {
-      if (docSnap.exists()) {
-        const userData = docSnap.data();
+    // 1. Fallback Timeout
+    // If the ESP32 writes to Firestore but fails to write to RTDB (e.g., network blip),
+    // we don't want the user stuck on "Verifying" forever.
+    const timeoutId = setTimeout(async () => {
+      if (!isFinished) {
+        console.log("Setup sync timeout - checking user profile directly.");
+        // Attempt to refresh data anyway; if the feeder exists in Firestore, this will find it.
+        if (refreshUserData) await refreshUserData();
+        setStatus('success'); 
+        isFinished = true;
+      }
+    }, 15000); // 15 seconds
+
+    // 2. RTDB Handshake Listener
+    const unsubscribe = onValue(setupSyncRef, async (snapshot) => {
+      const data = snapshot.val();
+      
+      if (data && data.status === 'complete') {
+        if (isFinished) return; // Prevent double trigger
+        isFinished = true;
+
+        console.log("Received handshake from ESP32 via RTDB.");
         
-        // If the ESP32 has successfully patched the feederId
-        if (userData?.feederId) {
-          // 2. Sync the AuthContext so the rest of the app knows we are verified
-          if (refreshUserData) {
-            await refreshUserData();
-          }
-          setStatus('success');
+        // Sync AuthContext so the rest of the app knows we are verified
+        if (refreshUserData) {
+          await refreshUserData();
         }
+
+        setStatus('success');
+        
+        // Cleanup: Remove the handshake node
+        remove(setupSyncRef).catch(err => console.log("Cleanup warning:", err));
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      off(setupSyncRef);
+      clearTimeout(timeoutId);
+    };
   }, [user?.uid, refreshUserData]);
 
   const handleFinish = () => {

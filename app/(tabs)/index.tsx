@@ -64,6 +64,12 @@ interface Feeder {
   [key: string]: any;
 }
 
+interface BowlStatus {
+  isWaiting: boolean;
+  amount?: number;
+  petId?: string;
+}
+
 interface BowlCardProps {
   bowlNumber: number;
   selectedPet: Pet | undefined;
@@ -73,6 +79,8 @@ interface BowlCardProps {
   streamUri: string | null;
   isActive: boolean;
   isFeederOnline: boolean;
+  // NEW: Pass status to card to update button text
+  bowlStatus: BowlStatus | undefined;
 }
 
 const BowlCard: React.FC<BowlCardProps> = ({ 
@@ -83,7 +91,8 @@ const BowlCard: React.FC<BowlCardProps> = ({
   onPressFeed, 
   streamUri, 
   isActive,
-  isFeederOnline 
+  isFeederOnline,
+  bowlStatus
 }) => {
     const isUnassigned = !selectedPet;
     const isFeedDisabled = isUnassigned || !isFeederOnline;
@@ -149,7 +158,12 @@ const BowlCard: React.FC<BowlCardProps> = ({
           disabled={isFeedDisabled}
         >
           <Text style={styles.feedButtonText}>
-            {isFeederOnline ? (isUnassigned ? 'No Pet Assigned' : 'Feed Now') : 'Feeder Offline'}
+            {/* NEW: Dynamic Button Text based on Status */}
+            {isFeederOnline 
+                ? (bowlStatus?.isWaiting 
+                    ? `Feed Pending Meal (${bowlStatus.amount}g)` 
+                    : (isUnassigned ? 'No Pet Assigned' : 'Feed Now')) 
+                : 'Feeder Offline'}
           </Text>
         </TouchableOpacity>
 
@@ -179,7 +193,6 @@ export default function DashboardScreen() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   
-  // Data State
   const [allFeeders, setAllFeeders] = useState<Feeder[]>([]);
   const [feederId, setFeederId] = useState<string | null>(null);
   
@@ -190,13 +203,15 @@ export default function DashboardScreen() {
   const [pets, setPets] = useState<Pet[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
 
+  // NEW: State for bowl statuses
+  const [bowlStatuses, setBowlStatuses] = useState<{ [bowlId: string]: BowlStatus }>({});
+
   const [isFeedModalVisible, setIsFeedModalVisible] = useState(false);
   const [selectedBowlForAction, setSelectedBowlForAction] = useState<number | null>(null);
   const [customAmount, setCustomAmount] = useState('');
 
   const [isCustomFeedVisible, setIsCustomFeedVisible] = useState(false);
 
-  // Reset Device Modal State
   const [isResetSelectionVisible, setIsResetSelectionVisible] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -210,7 +225,6 @@ export default function DashboardScreen() {
   const [foodLevels, setFoodLevels] = useState<{ [bowlId: string]: number }>({});
   const bowlsConfig = [{ id: 1 }, { id: 2 }];
 
-  // 1. Fetch List of Feeders owned by User
   useEffect(() => {
     if (!user) {
       setIsLoading(false);
@@ -231,13 +245,12 @@ export default function DashboardScreen() {
         setAllFeeders(fetchedFeeders);
 
         if (fetchedFeeders.length > 0) {
-          // Keep current feeder if valid, else default to first
           if (!feederId || !fetchedFeeders.find(f => f.id === feederId)) {
             setFeederId(fetchedFeeders[0].id);
           }
         } else {
           setFeederId(null);
-          setIsLoading(false); // No feeders, stop loading
+          setIsLoading(false); 
         }
       } catch (error) {
         console.error("Error fetching feeders:", error);
@@ -248,7 +261,6 @@ export default function DashboardScreen() {
     fetchFeeders();
   }, [user, refreshTrigger]);
 
-  // 2. Subscribe to Active Feeder Data
   useEffect(() => {
     if (!feederId || !user) {
       return;
@@ -258,14 +270,12 @@ export default function DashboardScreen() {
     const unsubscribes: Unsubscribe[] = [];
     const rtdbUnsubscribes: (() => void)[] = [];
 
-    // Firestore Feeder Data (Food Levels)
     const feederDocRef = doc(db, 'feeders', feederId);
     const feederUnsub = onSnapshot(feederDocRef, (doc) => {
         if (doc.exists()) {
             const data = doc.data();
             setFoodLevels(data.foodLevels || { "1": 0, "2": 0 });
         } else {
-          // Document deleted or unavailable
           setIsFeederOnline(false);
         }
     }, (error) => {
@@ -273,7 +283,6 @@ export default function DashboardScreen() {
     });
     unsubscribes.push(feederUnsub);
 
-    // RTDB Presence
     const rtdb = getDatabase();
     const statusRef = ref(rtdb, `feeders/${feederId}/status`);
     const statusUnsub = onValue(statusRef, (snapshot) => {
@@ -282,14 +291,23 @@ export default function DashboardScreen() {
     });
     rtdbUnsubscribes.push(() => statusUnsub()); 
 
-    // Pets
+    // NEW: Subscribe to Bowl Status (waiting for tag?)
+    const bowlStatusRef = ref(rtdb, `feeders/${feederId}/bowlStatus`);
+    const bowlStatusUnsub = onValue(bowlStatusRef, (snapshot) => {
+        if (snapshot.exists()) {
+            setBowlStatuses(snapshot.val());
+        } else {
+            setBowlStatuses({});
+        }
+    });
+    rtdbUnsubscribes.push(() => bowlStatusUnsub());
+
     const petsRef = collection(db, 'feeders', feederId, 'pets');
     const petsUnsub = onSnapshot(petsRef, (snapshot) => {
       setPets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Pet)));
     });
     unsubscribes.push(petsUnsub);
 
-    // Schedules
     const schedulesRef = collection(db, 'feeders', feederId, 'schedules');
     const schedulesUnsub = onSnapshot(schedulesRef, (snapshot) => {
       setSchedules(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Schedule)));
@@ -340,15 +358,11 @@ export default function DashboardScreen() {
         style: "destructive", 
         onPress: async () => {
           try {
-            // Attempt Google Sign-Out independently so it doesn't block Firebase Sign-Out
             try {
               await GoogleSignin.signOut();
             } catch (googleError) {
-              // This is expected if the user didn't sign in with Google or API is not connected
               console.log("Google Sign-Out skipped or failed:", googleError);
             }
-
-            // Always perform Firebase Sign-Out
             await signOut(auth);
           } catch (error) {
             console.error("Logout Error:", error);
@@ -365,20 +379,15 @@ export default function DashboardScreen() {
       Alert.alert("Error", "No devices found to reset.");
       return;
     }
-    
-    // If user has multiple devices, show selection modal
     if (allFeeders.length > 1) {
       setIsResetSelectionVisible(true);
     } else {
-      // If only one device, proceed directly to confirmation
       confirmResetDevice(allFeeders[0].id);
     }
   };
 
   const confirmResetDevice = (targetFeederId: string) => {
-    // Dismiss selection modal if open
     setIsResetSelectionVisible(false);
-
     Alert.alert(
       "Reset Device",
       "This will erase the feeder from your account and send a reset command to the device. You will NOT be logged out. Are you sure you want to proceed?",
@@ -409,14 +418,10 @@ export default function DashboardScreen() {
       const feederDocRef = doc(db, 'feeders', targetFeederId);
       await deleteDoc(feederDocRef);
 
-      // Force refresh of auth status (will redirect if no feeders left)
       if (refreshUserData) {
         await refreshUserData(); 
       }
-      
-      // Trigger a re-fetch of the feeders list to update UI
       setRefreshTrigger(prev => prev + 1);
-
       Alert.alert("Success", "Device has been reset and removed from your account.");
 
     } catch (error) {
@@ -454,6 +459,26 @@ export default function DashboardScreen() {
          return;
     }
 
+    // NEW: Check if this bowl is waiting for a scheduled feed
+    const status = bowlStatuses[bowlNumber];
+    if (status?.isWaiting && status.amount) {
+        // Resolve Pet Name from ID if possible
+        const petName = pets.find(p => p.id === status.petId)?.name || 'your pet';
+        
+        Alert.alert(
+            "Pending Meal",
+            `This bowl is waiting for ${petName}. Do you want to feed the scheduled ${status.amount}g now?`,
+            [
+                { text: "Cancel", style: "cancel" },
+                { 
+                    text: "Feed Scheduled Amount", 
+                    onPress: () => handleDispenseFeed(status.amount!, bowlNumber) // Pass bowlNumber explicitly for safety
+                }
+            ]
+        );
+        return;
+    }
+
     setSelectedBowlForAction(bowlNumber);
     setIsCustomFeedVisible(false);
     setCustomAmount('');
@@ -462,18 +487,18 @@ export default function DashboardScreen() {
 
   const feedModalData = useMemo(() => {
     if (selectedBowlForAction === null) return null;
-    
     const pet = assignedPetsByBowl[selectedBowlForAction];
     if (!pet) return null;
-
     const snackPortion = pet.snackPortion || 15; 
-
     return { pet, snackPortion };
   }, [selectedBowlForAction, assignedPetsByBowl]);
 
 
-  const handleDispenseFeed = async (amount: number) => {
-    if (selectedBowlForAction === null || !amount || amount <= 0) {
+  // Allow explicit bowl number to be passed (for direct feed from Alert)
+  const handleDispenseFeed = async (amount: number, explicitBowlNumber?: number) => {
+    const bowlToFeed = explicitBowlNumber ?? selectedBowlForAction;
+
+    if (bowlToFeed === null || !amount || amount <= 0) {
         Alert.alert('Invalid Amount', 'Please provide a valid portion amount.');
         return;
     }
@@ -482,23 +507,21 @@ export default function DashboardScreen() {
       return;
     }
     try {
-      // 1. Send Command to RTDB
       const rtdb = getDatabase();
       const commandPath = `commands/${feederId}`;
-      await set(ref(rtdb, commandPath), { command: 'feed', bowl: selectedBowlForAction, amount, timestamp: rtdbServerTimestamp() });
+      await set(ref(rtdb, commandPath), { command: 'feed', bowl: bowlToFeed, amount, timestamp: rtdbServerTimestamp() });
       
-      // 2. Write Log to Firestore
-      const petName = feedModalData?.pet?.name || 'Manual Override';
+      const petName = assignedPetsByBowl[bowlToFeed]?.name || 'Manual Override';
       
       await addDoc(collection(db, 'feeders', feederId, 'history'), {
            type: 'manual',
            amount: amount,
-           bowlNumber: selectedBowlForAction,
+           bowlNumber: bowlToFeed,
            petName: petName,
            timestamp: firestoreServerTimestamp()
       });
 
-      Alert.alert('Success', `Dispensing ${amount}g from Bowl ${selectedBowlForAction}.`);
+      Alert.alert('Success', `Dispensing ${amount}g from Bowl ${bowlToFeed}.`);
     } catch (error) {
       console.error("Error sending feed command:", error);
       Alert.alert('Error', 'Could not send feed command.');
@@ -545,6 +568,8 @@ export default function DashboardScreen() {
                         streamUri={streamUri}
                         isActive={index === activeIndex}
                         isFeederOnline={isFeederOnline}
+                        // NEW: Pass status
+                        bowlStatus={bowlStatuses[bowl.id]}
                     />
                 );
             })}
