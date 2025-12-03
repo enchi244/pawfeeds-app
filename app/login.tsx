@@ -50,6 +50,15 @@ export default function LoginScreen() {
       // Check if Play Services are available (required for Android)
       await GoogleSignin.hasPlayServices();
 
+      // FIX: Force sign out from Google SDK to ensure account picker shows up
+      try {
+        await GoogleSignin.signOut();
+      } catch (error) {
+        // If not signed in, this might throw, but we can safely ignore it 
+        // as we just wanted to ensure a clean state.
+        console.log('Ensure clean Google session:', error);
+      }
+
       // Get the user's ID token (this triggers the native modal)
       const { idToken } = await GoogleSignin.signIn();
 
