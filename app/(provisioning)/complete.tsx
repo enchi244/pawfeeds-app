@@ -1,9 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
 import { off, onValue, ref, remove } from 'firebase/database';
+import { collection, getDocs, query, where } from 'firebase/firestore'; // Import Firestore functions
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert, // Import Alert
   StatusBar,
   StyleSheet,
   Text,
@@ -12,7 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
-import { database } from '../../firebaseConfig';
+import { database, db } from '../../firebaseConfig'; // Import db
 
 const COLORS = {
   primary: '#8C6E63',
@@ -30,6 +32,7 @@ export default function SetupCompleteScreen() {
   const router = useRouter();
   const { user, refreshUserData } = useAuth();
   const [status, setStatus] = useState<'waiting' | 'success'>('waiting');
+  const [isVerifying, setIsVerifying] = useState(false); // Local state for button loading
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -81,9 +84,44 @@ export default function SetupCompleteScreen() {
     };
   }, [user?.uid, refreshUserData]);
 
-  const handleFinish = () => {
-    // Replace the entire provisioning stack with the main tabs layout
-    router.replace('/(tabs)');
+  const handleFinish = async () => {
+    if (isVerifying) return;
+    setIsVerifying(true);
+
+    try {
+      // 1. Force a refresh of the auth context logic
+      if (refreshUserData) {
+        await refreshUserData();
+      }
+
+      // 2. Double-Check: Manually query Firestore to ensure the feeder exists.
+      // This prevents the race condition where context might still be stale 
+      // or Firestore latency causes the layout to bounce us back.
+      if (user?.uid) {
+        const feedersRef = collection(db, 'feeders');
+        const q = query(feedersRef, where('owner_uid', '==', user.uid));
+        const snapshot = await getDocs(q);
+
+        if (!snapshot.empty) {
+          // Success: Feeder confirmed. Navigation is safe.
+          router.replace('/(tabs)');
+        } else {
+          // Failure: Context or Firestore is lagging.
+          Alert.alert(
+            "Syncing Device",
+            "We are finalizing the device registration. Please wait a few moments and try again."
+          );
+          setIsVerifying(false);
+        }
+      } else {
+        // Fallback for edge cases
+        router.replace('/(tabs)');
+      }
+    } catch (error) {
+      console.error("Verification failed:", error);
+      Alert.alert("Error", "Could not verify device setup. Please try again.");
+      setIsVerifying(false);
+    }
   };
 
   return (
@@ -150,12 +188,19 @@ export default function SetupCompleteScreen() {
             <View style={styles.divider} />
 
             <TouchableOpacity 
-              style={styles.button} 
+              style={[styles.button, isVerifying && styles.buttonDisabled]} 
               onPress={handleFinish}
               activeOpacity={0.8}
+              disabled={isVerifying}
             >
-              <Text style={styles.buttonText}>Go to Dashboard</Text>
-              <MaterialCommunityIcons name="arrow-right" size={20} color={COLORS.text} style={{marginLeft: 8}} />
+              {isVerifying ? (
+                <ActivityIndicator size="small" color={COLORS.text} />
+              ) : (
+                <>
+                  <Text style={styles.buttonText}>Go to Dashboard</Text>
+                  <MaterialCommunityIcons name="arrow-right" size={20} color={COLORS.text} style={{marginLeft: 8}} />
+                </>
+              )}
             </TouchableOpacity>
           </View>
         )}
@@ -308,6 +353,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
+  },
+  buttonDisabled: {
+    backgroundColor: COLORS.lightGray,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   buttonText: {
     fontSize: 16,

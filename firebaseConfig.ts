@@ -3,7 +3,7 @@ import { FirebaseApp, getApp, getApps, initializeApp } from "firebase/app";
 import { Auth, getAuth, getReactNativePersistence, initializeAuth } from "firebase/auth";
 import { getDatabase } from "firebase/database";
 import { getFirestore } from "firebase/firestore";
-import { getFunctions } from "firebase/functions"; // 1. Import getFunctions
+import { getFunctions } from "firebase/functions";
 import { getStorage } from "firebase/storage";
 
 // Your app's Firebase project configuration
@@ -21,6 +21,7 @@ const firebaseConfig = {
 let app: FirebaseApp;
 let auth: Auth;
 
+// Singleton pattern: Check if app is already initialized
 if (!getApps().length) {
   app = initializeApp(firebaseConfig);
   auth = initializeAuth(app, {
@@ -35,8 +36,14 @@ if (!getApps().length) {
 const db = getFirestore(app);
 const database = getDatabase(app);
 const storage = getStorage(app);
-// 2. Initialize Functions (Ensure region matches your backend)
 const functions = getFunctions(app, 'asia-southeast1');
 
-// 3. Export functions
-export { auth, database, db, functions, storage };
+// === COMPATIBILITY ADAPTER ===
+// This function ensures 'complete.tsx' and 'AuthContext.tsx' continue to work
+// by returning the instances we initialized above.
+const initializeFirebase = () => {
+  return { app, auth, db, database, functions, storage };
+};
+
+// Export individual instances (your preferred style) AND the helper function
+export { app, auth, database, db, functions, initializeFirebase, storage };
