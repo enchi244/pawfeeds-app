@@ -9,6 +9,7 @@
 #include "esp_http_server.h"
 #include <Firebase_ESP_Client.h>
 #include <time.h> 
+#include <ESPmDNS.h> // <--- NEW: Include mDNS library
 
 // --- DNS FIX: Include the low-level DNS libraries ---
 #include "lwip/dns.h"
@@ -17,7 +18,7 @@
 // ==========================================================
 // IMPORTANT: CONFIGURE THIS FOR EACH CAMERA BEFORE UPLOADING
 // ==========================================================
-#define BOWL_NUMBER 1 // Use 1 for the first camera, 2 for the second
+#define BOWL_NUMBER 2 // Use 1 for the first camera, 2 for the second
 // ==========================================================
 
 // --- FIREBASE CONFIGURATION (copy from master) ---
@@ -135,7 +136,6 @@ void setup() {
 // --- RESET HELPER FUNCTIONS ---
 void performFactoryReset() {
   Serial.println("[SYSTEM] Factory Reset triggered. Wiping data...");
-  
   // 1. Clear NVS
   preferences.begin("pawfeeds-cam", false);
   preferences.clear();
@@ -155,14 +155,11 @@ void checkSerialCommands() {
     
     if (packet.length() > 0) {
       Serial.printf("[SERIAL] Received: %s\n", packet.c_str());
-      
       if (packet == "RESET_DEVICE") {
         // 1. CRITICAL FIX: Send confirmation back to Master
-        SerialSlave.println("OK"); 
-        
+        SerialSlave.println("OK");
         // 2. Give the serial message a moment to actually leave the chip
-        delay(100); 
-
+        delay(100);
         // 3. Now wipe and reboot
         performFactoryReset();
       }
@@ -209,11 +206,9 @@ void loop() {
       // ===================================================================
       // This runs on Core 0 and checks the Serial buffer for the "RESET_DEVICE" signal.
       // It does NOT block the camera stream running on Core 1.
-      checkSerialCommands(); 
-      
+      checkSerialCommands();
       // Note: RTDB Stream is intentionally disabled here to prevent Core 0/1 conflicts.
       break;
-      
     case ERROR:
       Serial.println("[ERROR] Halting.");
       delay(10000);
@@ -288,6 +283,7 @@ void connectToWiFi() {
   IPAddress ip(0, 0, 0, 0);
   IPAddress gateway(0, 0, 0, 0);
   IPAddress subnet(0, 0, 0, 0);
+  
   if (!WiFi.config(ip, gateway, subnet, primaryDNS, secondaryDNS)) {
     Serial.println("[ERROR] WiFi.config() failed. Halting.");
     currentState = ERROR;
@@ -308,6 +304,20 @@ void connectToWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.print("\n[Wi-Fi] Connected! IP Address: ");
     Serial.println(WiFi.localIP());
+
+    // --- [NEW] START MDNS RESPONDER ---
+    // Fix: Use .concat() to avoid operator+ ambiguity with Firebase library
+    String hostname = "pawfeeds-cam-";
+    hostname.concat(BOWL_NUMBER);
+    
+    if (MDNS.begin(hostname.c_str())) {
+        Serial.printf("[MDNS] Responder started. Hostname: %s.local\n", hostname.c_str());
+        MDNS.addService("http", "tcp", 80);
+    } else {
+        Serial.println("[MDNS] Error setting up responder!");
+    }
+    // ----------------------------------
+
     if (feederId.length() == 0) {
       currentState = AWAITING_FEEDER_ID;
     } else {

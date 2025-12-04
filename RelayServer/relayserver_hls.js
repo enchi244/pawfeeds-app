@@ -20,9 +20,10 @@ const RTMP_BASE_URL = `rtmp://${PUBLIC_SERVER_IP}:1935/live`; // 'live' is a com
 
 const CAMERA_SOURCES = {
   // Key: The "stream key" to push to. e.g., rtmp://.../live/stream1
-  // Value: The local IP of the camera.
-  'stream1': 'http://192.168.1.183/stream', // Bowl 1 Camera
-  'stream2': 'http://192.168.1.187/stream', // Bowl 2 Camera
+  // Value: The dynamic mDNS address of the camera.
+  // These hostnames stay consistent regardless of the Wi-Fi network/IP.
+  'stream1': 'http://pawfeeds-cam-1.local/stream', // Bowl 1 Camera
+  'stream2': 'http://pawfeeds-cam-2.local/stream', // Bowl 2 Camera
 };
 
 // FFmpeg settings for a stable MJPEG -> RTMP push
