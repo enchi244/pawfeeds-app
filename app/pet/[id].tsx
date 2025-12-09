@@ -62,7 +62,7 @@ interface DogBreed {
   defaultKcal: number;
   defaultActivity: 'Low' | 'Normal' | 'High';
   defaultNeuterStatus: 'Neutered/Spayed' | 'Intact';
-  defaultSnackPortion: number; // Added snack portion
+  defaultSnackPortion: number; 
 }
 
 interface OccupiedBowl {
@@ -153,7 +153,7 @@ export default function PetProfileScreen() {
   const [neuterStatus, setNeuterStatus] = useState('Neutered/Spayed');
   const [activityLevel, setActivityLevel] = useState('Normal');
   const [recommendedPortion, setRecommendedPortion] = useState(0);
-  const [snackPortion, setSnackPortion] = useState(0); // NEW STATE
+  const [snackPortion, setSnackPortion] = useState(0); 
   const [feederId, setFeederId] = useState<string | null>(null);
 
   const [idealPortion, setIdealPortion] = useState<number | null>(null);
@@ -174,8 +174,8 @@ export default function PetProfileScreen() {
   
   // --- Bowl Logic State ---
   const [assignedBowl, setAssignedBowl] = useState<number>(1);
-  const [initialBowl, setInitialBowl] = useState<number | null>(null); // Track original bowl for swap logic
-  const [occupiedBowls, setOccupiedBowls] = useState<OccupiedBowl[]>([]); // detailed info on who owns which bowl
+  const [initialBowl, setInitialBowl] = useState<number | null>(null); 
+  const [occupiedBowls, setOccupiedBowls] = useState<OccupiedBowl[]>([]); 
   
   const [isScanning, setIsScanning] = useState(false);
   const [scanTargetBowl, setScanTargetBowl] = useState<number | null>(null);
@@ -214,7 +214,7 @@ export default function PetProfileScreen() {
             const snapshot = await getDocs(petsRef);
             
             const occupied: OccupiedBowl[] = snapshot.docs
-                .filter(doc => doc.id !== id) // Don't count self
+                .filter(doc => doc.id !== id) 
                 .map(doc => ({
                     petId: doc.id,
                     petName: doc.data().name || 'Unknown',
@@ -251,15 +251,25 @@ export default function PetProfileScreen() {
             setBirthday(petData.birthday.toDate ? petData.birthday.toDate() : new Date(petData.birthday));
           }
           setWeight(petData.weight ? petData.weight.toString() : '');
-          setKcal(petData.kcal ? petData.kcal.toString() : '');
+          
+          // --- MIGRATION LOGIC: Convert Old kcal/100g to kcal/kg ---
+          let loadedKcal = petData.kcal;
+          if (loadedKcal && loadedKcal < 2000) {
+             // Heuristic: No standard dog food is < 2000 kcal/KG (that would be 200kcal/100g, extremely low).
+             // Assume it is old format (/100g) and multiply by 10.
+             loadedKcal = loadedKcal * 10;
+          }
+          setKcal(loadedKcal ? loadedKcal.toString() : '');
+          // --------------------------------------------------------
+
           setNeuterStatus(petData.neuterStatus || 'Neutered/Spayed');
           setActivityLevel(petData.activityLevel || 'Normal');
           setRecommendedPortion(petData.recommendedPortion || 0);
-          setSnackPortion(petData.snackPortion || 15); // Default to 15 if missing
+          setSnackPortion(petData.snackPortion || 15); 
           setRfidTagId(petData.rfidTagId || '');
           
           setAssignedBowl(petData.bowlNumber || 1);
-          setInitialBowl(petData.bowlNumber || 1); // Store initial for swap detection
+          setInitialBowl(petData.bowlNumber || 1); 
           
           setPhotoUrl(petData.photoUrl || null);
         }
@@ -304,10 +314,16 @@ export default function PetProfileScreen() {
     
     const preset = breeds.find(b => b.id === selectedBreedId);
     if (preset) {
-      setKcal(preset.defaultKcal.toString());
+      // Breeds database should likely store kcal/100g or kcal/kg. 
+      // If your breed DB uses /100g, multiply by 10 here.
+      // Assuming preset.defaultKcal is typical /100g value (e.g. 350-400), we convert to kg.
+      let presetKcal = preset.defaultKcal;
+      if (presetKcal < 2000) presetKcal *= 10;
+      
+      setKcal(presetKcal.toString());
       setActivityLevel(preset.defaultActivity);
       setNeuterStatus(preset.defaultNeuterStatus);
-      setSnackPortion(preset.defaultSnackPortion || 15); // Apply default snack portion
+      setSnackPortion(preset.defaultSnackPortion || 15); 
 
       if (ageInMonths !== null && ageInMonths < 12) {
         const estimated = estimatePuppyWeight(preset.defaultWeight, ageInMonths);
@@ -374,9 +390,9 @@ export default function PetProfileScreen() {
   useEffect(() => {
     const calculatePortion = () => {
       const weightKg = parseFloat(weight);
-      const foodKcal = parseFloat(kcal);
+      const foodKcalPerKg = parseFloat(kcal); // Now treating this as kcal/kg
       
-      if (isNaN(weightKg) || weightKg <= 0 || isNaN(foodKcal) || foodKcal <= 0 || ageInMonths === null || ageInMonths < 0) {
+      if (isNaN(weightKg) || weightKg <= 0 || isNaN(foodKcalPerKg) || foodKcalPerKg <= 0 || ageInMonths === null || ageInMonths < 0) {
         setRecommendedPortion(0);
         setIdealPortion(null);
         return;
@@ -409,7 +425,11 @@ export default function PetProfileScreen() {
         }
         
         const mer = rer * merFactor;
-        return Math.round((mer / foodKcal) * 100);
+        
+        // --- FORMULA UPDATE ---
+        // Old (kcal/100g): (mer / foodKcal) * 100
+        // New (kcal/kg):   (mer / foodKcalPerKg) * 1000
+        return Math.round((mer / foodKcalPerKg) * 1000);
       };
 
       const currentGrams = getGramsForWeight(weightKg);
@@ -556,7 +576,7 @@ export default function PetProfileScreen() {
       name,
       birthday: Timestamp.fromDate(birthday), 
       weight: parseFloat(weight),
-      kcal: parseInt(kcal, 10),
+      kcal: parseInt(kcal, 10), // Saves as kcal/kg (e.g. 3300)
       neuterStatus,
       activityLevel,
       recommendedPortion,
@@ -569,13 +589,11 @@ export default function PetProfileScreen() {
     try {
       const batch = writeBatch(db);
 
-      // --- NEW: DUPLICATE TAG CHECK ---
-      // Query Firestore to see if this RFID tag is already in use by another pet in this feeder
+      // --- DUPLICATE TAG CHECK ---
       const petsRef = collection(db, 'feeders', feederId, 'pets');
       const duplicateQuery = query(petsRef, where('rfidTagId', '==', rfidTagId));
       const duplicateSnapshot = await getDocs(duplicateQuery);
 
-      // Check if found doc is NOT the current pet (allow editing own tag)
       const duplicatePet = duplicateSnapshot.docs.find(doc => doc.id !== (isEditing ? id : ''));
 
       if (duplicatePet) {
@@ -584,16 +602,15 @@ export default function PetProfileScreen() {
           `The tag "${rfidTagId}" is already assigned to ${duplicatePet.data().name}. \n\nPlease scan a different tag or reset the other pet.`
         );
         setIsLoading(false);
-        return; // STOP execution here
+        return; 
       }
-      // --------------------------------
 
       // 1. Determine Ref for Current Pet
       let petDocRef;
       if (isEditing && id) {
         petDocRef = doc(db, 'feeders', feederId, 'pets', id);
       } else {
-        petDocRef = doc(collection(db, 'feeders', feederId, 'pets')); // New ID
+        petDocRef = doc(collection(db, 'feeders', feederId, 'pets')); 
       }
 
       // 2. Handle Image Upload
@@ -610,16 +627,13 @@ export default function PetProfileScreen() {
       if (conflictPet) {
           const conflictPetRef = doc(db, 'feeders', feederId, 'pets', conflictPet.petId);
           
-          // Determine target bowl for evicted pet
           let targetBowlForConflict = initialBowl; 
           if (!targetBowlForConflict) {
               targetBowlForConflict = assignedBowl === 1 ? 2 : 1;
           }
 
-          // A. Update Conflict Pet Profile
           batch.update(conflictPetRef, { bowlNumber: targetBowlForConflict });
 
-          // B. Update Conflict Pet Schedules (Deep Update)
           const conflictSchedulesQ = query(
              collection(db, 'feeders', feederId, 'schedules'), 
              where('petId', '==', conflictPet.petId)
@@ -637,7 +651,6 @@ export default function PetProfileScreen() {
       if (isEditing) {
           batch.update(petDocRef, { ...petData, photoUrl: finalPhotoUrl });
           
-          // C. Update Current Pet Schedules (if editing and bowl changed)
           if (initialBowl !== assignedBowl) {
               const mySchedulesQ = query(
                   collection(db, 'feeders', feederId, 'schedules'), 
@@ -655,7 +668,7 @@ export default function PetProfileScreen() {
       // 5. Commit
       await batch.commit();
       
-      // 6. Recalculate portions logic (standard)
+      // 6. Recalculate portions logic
       await recalculatePortionsForPet(feederId, petDocRef.id, recommendedPortion);
       
       if (conflictPet) {
@@ -911,18 +924,21 @@ export default function PetProfileScreen() {
           />
         )}
 
-        <Text style={styles.label}>Food Calories (kcal/100g)</Text>
+        {/* --- UPDATED LABEL FOR KCAL/KG --- */}
+        <Text style={styles.label}>Food Calories (kcal/kg)</Text>
         <TextInput 
           style={styles.input} 
           value={kcal} 
           onChangeText={setKcal} 
-          placeholder="Check your dog food bag" 
+          placeholder="e.g., 3500 (Check back of bag)" 
           keyboardType="numeric" 
         />
         
         <View style={styles.infoContainer}>
              <MaterialCommunityIcons name="information-outline" size={16} color={COLORS.info} />
-             <Text style={[styles.helperText, {color: COLORS.info}]}> Check the label on your food bag</Text>
+             <Text style={[styles.helperText, {color: COLORS.info}]}>
+                 Listed as "Metabolizable Energy" on bag
+             </Text>
         </View>
 
         <Text style={styles.label}>Sex / Neuter Status</Text>
@@ -940,7 +956,6 @@ export default function PetProfileScreen() {
         />
 
         <Text style={styles.label}>Assign to Bowl</Text>
-        {/* --- UPDATED BOWL SELECTOR --- */}
         <View style={styles.pickerContainer}>
           <Picker
             selectedValue={assignedBowl}
@@ -949,7 +964,6 @@ export default function PetProfileScreen() {
           >
              {[1, 2].map(bowlNum => {
                  const occupant = occupiedBowls.find(o => o.bowlNumber === bowlNum);
-                 // Logic: If it's occupied AND not by the current user (on edit), show name.
                  const isTaken = occupant && (occupant.petId !== id); 
                  
                  let label = `Bowl ${bowlNum}`;
