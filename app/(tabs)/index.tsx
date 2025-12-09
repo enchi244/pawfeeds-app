@@ -40,8 +40,10 @@ const COLORS = {
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
+// Match this to the MAX_WEIGHT_GRAMS in your Arduino Code
+const MAX_CAPACITY = 1000; 
 
-// --- Interfaces ---
+// ... [Keep interfaces: Pet, Schedule, Feeder, BowlStatus, BowlCardProps] ...
 interface Pet {
   id: string;
   name: string;
@@ -79,23 +81,27 @@ interface BowlCardProps {
   streamUri: string | null;
   isActive: boolean;
   isFeederOnline: boolean;
-  // NEW: Pass status to card to update button text
   bowlStatus: BowlStatus | undefined;
 }
 
+// ... [Modified BowlCard Component] ...
 const BowlCard: React.FC<BowlCardProps> = ({ 
-  bowlNumber, 
-  selectedPet, 
-  foodLevel, 
-  perMealPortion, 
-  onPressFeed, 
-  streamUri, 
-  isActive,
-  isFeederOnline,
-  bowlStatus
+    bowlNumber, 
+    selectedPet, 
+    foodLevel, // This is now coming in as grams (e.g., 500, 1000)
+    perMealPortion, 
+    onPressFeed, 
+    streamUri, 
+    isActive,
+    isFeederOnline,
+    bowlStatus
 }) => {
     const isUnassigned = !selectedPet;
     const isFeedDisabled = isUnassigned || !isFeederOnline;
+
+    // Calculate percentage for the visual progress bar width only
+    // (Current Weight / Max Capacity) * 100
+    const progressPercent = Math.min(100, Math.max(0, (foodLevel / MAX_CAPACITY) * 100));
 
     useEffect(() => {
         const setAudio = async () => {
@@ -145,11 +151,13 @@ const BowlCard: React.FC<BowlCardProps> = ({
         </View>
 
         <View style={styles.statusContainer}>
-          <Text style={styles.statusLabel}>Food Level</Text>
+          <Text style={styles.statusLabel}>Food Level (Grams)</Text>
           <View style={styles.progressBarBackground}>
-            <View style={[styles.progressBarFill, { width: `${foodLevel}%` }]} />
+            {/* Use the calculated percentage for width */}
+            <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
           </View>
-          <Text style={styles.statusPercentage}>{foodLevel}%</Text>
+          {/* Display the actual grams */}
+          <Text style={styles.statusPercentage}>{foodLevel}g / {MAX_CAPACITY}g</Text>
         </View>
 
         <TouchableOpacity 
@@ -158,7 +166,6 @@ const BowlCard: React.FC<BowlCardProps> = ({
           disabled={isFeedDisabled}
         >
           <Text style={styles.feedButtonText}>
-            {/* NEW: Dynamic Button Text based on Status */}
             {isFeederOnline 
                 ? (bowlStatus?.isWaiting 
                     ? `Feed Pending Meal (${bowlStatus.amount}g)` 
@@ -203,7 +210,6 @@ export default function DashboardScreen() {
   const [pets, setPets] = useState<Pet[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
 
-  // NEW: State for bowl statuses
   const [bowlStatuses, setBowlStatuses] = useState<{ [bowlId: string]: BowlStatus }>({});
 
   const [isFeedModalVisible, setIsFeedModalVisible] = useState(false);
@@ -225,6 +231,7 @@ export default function DashboardScreen() {
   const [foodLevels, setFoodLevels] = useState<{ [bowlId: string]: number }>({});
   const bowlsConfig = [{ id: 1 }, { id: 2 }];
 
+  // ... [Keep useEffects for fetching feeders, status, pets, schedules exactly as is] ...
   useEffect(() => {
     if (!user) {
       setIsLoading(false);
@@ -276,7 +283,7 @@ export default function DashboardScreen() {
             const data = doc.data();
             setFoodLevels(data.foodLevels || { "1": 0, "2": 0 });
         } else {
-          setIsFeederOnline(false);
+            setIsFeederOnline(false);
         }
     }, (error) => {
         console.error("Feeder doc snapshot error:", error);
@@ -291,7 +298,6 @@ export default function DashboardScreen() {
     });
     rtdbUnsubscribes.push(() => statusUnsub()); 
 
-    // NEW: Subscribe to Bowl Status (waiting for tag?)
     const bowlStatusRef = ref(rtdb, `feeders/${feederId}/bowlStatus`);
     const bowlStatusUnsub = onValue(bowlStatusRef, (snapshot) => {
         if (snapshot.exists()) {
@@ -435,6 +441,12 @@ export default function DashboardScreen() {
     handleMenuClose();
   };
 
+  // --- Handle Manual Navigation ---
+  const handleManualPress = () => {
+    handleMenuClose();
+    router.push("/manual");
+  };
+
   const toggleFilter = (bowl: 'bowl1' | 'bowl2') => {
     setFilters(prevFilters => ({ ...prevFilters, [bowl]: !prevFilters[bowl] }));
   };
@@ -459,10 +471,8 @@ export default function DashboardScreen() {
          return;
     }
 
-    // NEW: Check if this bowl is waiting for a scheduled feed
     const status = bowlStatuses[bowlNumber];
     if (status?.isWaiting && status.amount) {
-        // Resolve Pet Name from ID if possible
         const petName = pets.find(p => p.id === status.petId)?.name || 'your pet';
         
         Alert.alert(
@@ -472,7 +482,7 @@ export default function DashboardScreen() {
                 { text: "Cancel", style: "cancel" },
                 { 
                     text: "Feed Scheduled Amount", 
-                    onPress: () => handleDispenseFeed(status.amount!, bowlNumber) // Pass bowlNumber explicitly for safety
+                    onPress: () => handleDispenseFeed(status.amount!, bowlNumber)
                 }
             ]
         );
@@ -494,7 +504,6 @@ export default function DashboardScreen() {
   }, [selectedBowlForAction, assignedPetsByBowl]);
 
 
-  // Allow explicit bowl number to be passed (for direct feed from Alert)
   const handleDispenseFeed = async (amount: number, explicitBowlNumber?: number) => {
     const bowlToFeed = explicitBowlNumber ?? selectedBowlForAction;
 
@@ -568,7 +577,6 @@ export default function DashboardScreen() {
                         streamUri={streamUri}
                         isActive={index === activeIndex}
                         isFeederOnline={isFeederOnline}
-                        // NEW: Pass status
                         bowlStatus={bowlStatuses[bowl.id]}
                     />
                 );
@@ -608,13 +616,14 @@ export default function DashboardScreen() {
             <TouchableOpacity style={styles.menuItem} onPress={handleAccountPress}><MaterialCommunityIcons name="account-circle-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Account</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => { handleMenuClose(); router.push('/(provisioning)'); }}><MaterialCommunityIcons name="plus-box-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Add Device</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={handleResetMenuPress}><MaterialCommunityIcons name="restart" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Reset Device</Text></TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('Coming Soon', 'Manual and tutorials will be available here.')}><MaterialCommunityIcons name="book-open-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Manual</Text></TouchableOpacity>
+            {/* UPDATED MANUAL LINK */}
+            <TouchableOpacity style={styles.menuItem} onPress={handleManualPress}><MaterialCommunityIcons name="book-open-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Manual</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuLogoutButton} onPress={handleLogout}><MaterialCommunityIcons name="logout" size={24} color={COLORS.danger} style={styles.menuIcon} /><Text style={styles.menuLogoutText}>Logout</Text></TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Modal>
 
-      {/* Reset Device Selection Modal */}
+      {/* Reset Device Selection Modal - KEPT AS IS */}
       <Modal animationType="fade" transparent={true} visible={isResetSelectionVisible} onRequestClose={() => setIsResetSelectionVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} onPress={() => setIsResetSelectionVisible(false)} activeOpacity={1}>
           <View style={styles.menuContainer}>
@@ -643,7 +652,7 @@ export default function DashboardScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Feed Now Modal */}
+      {/* Feed Now Modal - KEPT AS IS */}
       <Modal visible={isFeedModalVisible} transparent={true} animationType="fade" onRequestClose={() => setIsFeedModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} onPress={() => setIsFeedModalVisible(false)} activeOpacity={1}>
             <TouchableOpacity activeOpacity={1} style={styles.selectionModalContent}>
