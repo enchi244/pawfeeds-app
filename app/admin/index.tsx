@@ -78,14 +78,7 @@ export default function AdminDashboard() {
         onPress={() => router.push('/admin/users')}
         />
 
-        <Text style={styles.sectionTitle}>System</Text>
-
-        <AdminCard 
-        title="Firmware OTA" 
-        subtitle="Upload new firmware versions"
-        icon="cloud-upload"
-        onPress={() => router.push('/admin/firmware')}
-        />
+        {/* Removed System / Firmware OTA Section */}
       </ScrollView>
     </SafeAreaView>
   );
