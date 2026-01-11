@@ -18,7 +18,7 @@
 // ==========================================================
 // IMPORTANT: CONFIGURE THIS FOR EACH CAMERA BEFORE UPLOADING
 // ==========================================================
-#define BOWL_NUMBER 2 // Use 1 for the first camera, 2 for the second
+#define BOWL_NUMBER 1 // Use 1 for the first camera, 2 for the second
 // ==========================================================
 
 // --- FIREBASE CONFIGURATION (copy from master) ---
