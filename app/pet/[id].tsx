@@ -1,6 +1,5 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { getDatabase, off, onValue, ref, set as rtdbSet, serverTimestamp } from 'firebase/database';
@@ -21,39 +20,41 @@ import {
   Alert,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { db, storage } from '../../firebaseConfig';
 import { recalculatePortionsForPet } from '../../utils/portionLogic';
 
-// --- REST API Upload Helper ---
-const encodeStoragePath = (path: string) => {
-  return encodeURIComponent(path).replace(/\./g, '%2E');
-};
-
+// --- Modern Color Palette ---
 const COLORS = {
-  primary: '#8C6E63',
-  accent: '#FFC107',
-  background: '#F5F5F5',
-  text: '#333333',
-  lightGray: '#E0E0E0',
-  mediumGray: '#BDBDBD',
-  white: '#FFFFFF',
+  primary: '#6D4C41',
+  secondary: '#8D6E63',
+  accent: '#FFB300',
+  background: '#FAFAFA',
+  card: '#FFFFFF',
+  text: '#2D2D2D',
+  subText: '#757575',
+  border: '#EEEEEE',
   danger: '#D32F2F',
-  info: '#2196F3',
-  warning: '#FF9800',
-  success: '#4CAF50'
+  success: '#43A047',
+  warning: '#FF9800', // Orange for warnings
+  info: '#1976D2',    // Blue for info
+  bowl1: '#29B6F6',
+  bowl2: '#EF5350',
 };
 
+// --- Interfaces & Helpers ---
 interface DogBreed {
   id: string; 
   name: string;
@@ -71,31 +72,6 @@ interface OccupiedBowl {
   petName: string;
 }
 
-interface SegmentedControlProps {
-  options: string[];
-  selected: string;
-  onSelect: (option: string) => void;
-}
-
-const SegmentedControl: React.FC<SegmentedControlProps> = ({ options, selected, onSelect }) => (
-  <View style={styles.segmentedControlContainer}>
-    {options.map((option) => (
-      <TouchableOpacity
-        key={option}
-        style={[
-          styles.segment,
-          selected === option ? styles.segmentActive : {},
-        ]}
-        onPress={() => onSelect(option)}>
-        <Text style={[styles.segmentText, selected === option ? styles.segmentTextActive : {}]}>
-          {option}
-        </Text>
-      </TouchableOpacity>
-    ))}
-  </View>
-);
-
-// --- Growth Curve Logic ---
 const estimatePuppyWeight = (adultWeight: number, months: number): number => {
   let factor = 1.0;
   if (months < 2) factor = 0.20;       
@@ -110,34 +86,19 @@ const estimatePuppyWeight = (adultWeight: number, months: number): number => {
   return Math.round(adultWeight * factor * 10) / 10;
 };
 
-// --- Age Calculation Helper ---
 const getAgeString = (birthDate: Date | null) => {
   if (!birthDate) return null;
-  
   const today = new Date();
   let years = today.getFullYear() - birthDate.getFullYear();
   let months = today.getMonth() - birthDate.getMonth();
   let days = today.getDate() - birthDate.getDate();
 
-  if (days < 0) {
-    months--;
-    const prevMonth = new Date(today.getFullYear(), today.getMonth(), 0);
-    days += prevMonth.getDate();
-  }
-  
-  if (months < 0) {
-    years--;
-    months += 12;
-  }
+  if (days < 0) { months--; days += new Date(today.getFullYear(), today.getMonth(), 0).getDate(); }
+  if (months < 0) { years--; months += 12; }
 
   if (years < 0) return "Not born yet";
-
-  if (years > 0) {
-     return `${years}y ${months}m old`;
-  } else {
-     if (months === 0) return `${days}d old`;
-     return `${months}m ${days}d old`;
-  }
+  if (years > 0) return `${years}y ${months}m old`;
+  return months === 0 ? `${days}d old` : `${months}m ${days}d old`;
 };
 
 export default function PetProfileScreen() {
@@ -146,7 +107,6 @@ export default function PetProfileScreen() {
   const { user } = useAuth();
   const isEditing = id !== 'new';
 
-  // --- Pet Data States ---
   const [name, setName] = useState('');
   const [weight, setWeight] = useState('');
   const [kcal, setKcal] = useState('');
@@ -155,1093 +115,567 @@ export default function PetProfileScreen() {
   const [recommendedPortion, setRecommendedPortion] = useState(0);
   const [snackPortion, setSnackPortion] = useState(0); 
   const [feederId, setFeederId] = useState<string | null>(null);
-
   const [idealPortion, setIdealPortion] = useState<number | null>(null);
-
   const [birthday, setBirthday] = useState<Date | null>(null);
   const [ageInMonths, setAgeInMonths] = useState<number | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
-
   const [breeds, setBreeds] = useState<DogBreed[]>([]);
-  const [breedsLoading, setBreedsLoading] = useState(true);
   const [selectedBreedId, setSelectedBreedId] = useState<string | null>(null);
-  
-  // --- UI States for Breed Selector ---
   const [isBreedModalVisible, setBreedModalVisible] = useState(false);
   const [breedSearch, setBreedSearch] = useState('');
-  
   const [rfidTagId, setRfidTagId] = useState('');
-  
-  // --- Bowl Logic State ---
   const [assignedBowl, setAssignedBowl] = useState<number>(1);
   const [initialBowl, setInitialBowl] = useState<number | null>(null); 
   const [occupiedBowls, setOccupiedBowls] = useState<OccupiedBowl[]>([]); 
-  
   const [isScanning, setIsScanning] = useState(false);
   const [scanTargetBowl, setScanTargetBowl] = useState<number | null>(null);
-  
   const [photoUrl, setPhotoUrl] = useState<string | null>(null); 
   const [localImageUri, setLocalImageUri] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false); 
-  
-  // Fetch Feeder ID
+  const [breedsLoading, setBreedsLoading] = useState(true);
+
+  // --- Logic Hooks (Same as before) ---
   useEffect(() => {
     const fetchFeederId = async () => {
-      if (!user) {
-        Alert.alert('Error', 'You must be logged in to manage pets.');
-        router.back();
-        return;
-      }
+      if (!user) { router.back(); return; }
       const feedersRef = collection(db, 'feeders');
       const q = query(feedersRef, where('owner_uid', '==', user.uid));
-      const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) {
-        setFeederId(querySnapshot.docs[0].id);
-      } else {
-        Alert.alert('No Feeder Found', 'Could not find a feeder associated with your account.');
-        router.back();
-      }
+      const snap = await getDocs(q);
+      if (!snap.empty) setFeederId(snap.docs[0].id);
+      else { Alert.alert('Error', 'No feeder found.'); router.back(); }
     };
     fetchFeederId();
-  }, [user, router]);
+  }, [user]);
 
-  // Fetch Occupied Bowls (Detailed)
   useEffect(() => {
-    const fetchOccupiedBowls = async () => {
+    const fetchOccupied = async () => {
         if (!feederId) return;
-        try {
-            const petsRef = collection(db, 'feeders', feederId, 'pets');
-            const snapshot = await getDocs(petsRef);
-            
-            const occupied: OccupiedBowl[] = snapshot.docs
-                .filter(doc => doc.id !== id) 
-                .map(doc => ({
-                    petId: doc.id,
-                    petName: doc.data().name || 'Unknown',
-                    bowlNumber: doc.data().bowlNumber
-                }))
-                .filter(item => item.bowlNumber !== undefined && item.bowlNumber !== null);
-
-            setOccupiedBowls(occupied);
-
-            // Auto-assign free bowl for new pets if available
-            if (!isEditing) {
-                const takenNumbers = occupied.map(o => o.bowlNumber);
-                const freeBowl = [1, 2].find(b => !takenNumbers.includes(b));
-                if (freeBowl) setAssignedBowl(freeBowl);
-            }
-        } catch (error) {
-            console.error("Error checking bowl availability:", error);
+        const petsRef = collection(db, 'feeders', feederId, 'pets');
+        const snap = await getDocs(petsRef);
+        const occupied = snap.docs
+            .filter(doc => doc.id !== id)
+            .map(doc => ({ petId: doc.id, petName: doc.data().name || 'Unknown', bowlNumber: doc.data().bowlNumber }))
+            .filter(item => item.bowlNumber);
+        setOccupiedBowls(occupied);
+        if (!isEditing) {
+            const taken = occupied.map(o => o.bowlNumber);
+            const free = [1, 2].find(b => !taken.includes(b));
+            if (free) setAssignedBowl(free);
         }
     };
-    fetchOccupiedBowls();
+    fetchOccupied();
   }, [feederId, id, isEditing]);
 
-  // Fetch Pet Data
   useEffect(() => {
-    const fetchPetData = async () => {
+    const fetchPet = async () => {
       if (isEditing && id && feederId) {
         setIsLoading(true);
-        const petDocRef = doc(db, 'feeders', feederId, 'pets', id);
-        const docSnap = await getDoc(petDocRef);
+        const docSnap = await getDoc(doc(db, 'feeders', feederId, 'pets', id));
         if (docSnap.exists()) {
-          const petData = docSnap.data();
-          setName(petData.name || '');
-          if (petData.birthday) {
-            setBirthday(petData.birthday.toDate ? petData.birthday.toDate() : new Date(petData.birthday));
-          }
-          setWeight(petData.weight ? petData.weight.toString() : '');
-          
-          // --- MIGRATION LOGIC: Convert Old kcal/100g to kcal/kg ---
-          let loadedKcal = petData.kcal;
-          if (loadedKcal && loadedKcal < 2000) {
-             // Heuristic: No standard dog food is < 2000 kcal/KG (that would be 200kcal/100g, extremely low).
-             // Assume it is old format (/100g) and multiply by 10.
-             loadedKcal = loadedKcal * 10;
-          }
-          setKcal(loadedKcal ? loadedKcal.toString() : '');
-          // --------------------------------------------------------
-
-          setNeuterStatus(petData.neuterStatus || 'Neutered/Spayed');
-          setActivityLevel(petData.activityLevel || 'Normal');
-          setRecommendedPortion(petData.recommendedPortion || 0);
-          setSnackPortion(petData.snackPortion || 15); 
-          setRfidTagId(petData.rfidTagId || '');
-          
-          setAssignedBowl(petData.bowlNumber || 1);
-          setInitialBowl(petData.bowlNumber || 1); 
-          
-          setPhotoUrl(petData.photoUrl || null);
+          const d = docSnap.data();
+          setName(d.name || '');
+          if (d.birthday) setBirthday(d.birthday.toDate ? d.birthday.toDate() : new Date(d.birthday));
+          setWeight(d.weight ? d.weight.toString() : '');
+          let k = d.kcal; if (k && k < 2000) k *= 10;
+          setKcal(k ? k.toString() : '');
+          setNeuterStatus(d.neuterStatus || 'Neutered/Spayed');
+          setActivityLevel(d.activityLevel || 'Normal');
+          setRecommendedPortion(d.recommendedPortion || 0);
+          setSnackPortion(d.snackPortion || 15);
+          setRfidTagId(d.rfidTagId || '');
+          setAssignedBowl(d.bowlNumber || 1);
+          setInitialBowl(d.bowlNumber || 1);
+          setPhotoUrl(d.photoUrl || null);
         }
         setIsLoading(false);
       }
     };
-    fetchPetData();
+    fetchPet();
   }, [id, isEditing, feederId]);
 
-  // Fetch Dog Breeds & Sort
   useEffect(() => {
     const fetchBreeds = async () => {
       try {
-        const breedsCollectionRef = collection(db, 'dogBreeds');
-        const q = query(breedsCollectionRef, orderBy('name')); 
-        const querySnapshot = await getDocs(q);
-        const breedsData = querySnapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        } as DogBreed));
-
-        // Sort: Size First, then Name
-        const sizeOrder: { [key: string]: number } = { 'Small': 1, 'Medium': 2, 'Large': 3 };
-        breedsData.sort((a, b) => {
-            return a.name.localeCompare(b.name);
-        });
-
-        setBreeds(breedsData);
-      } catch (error) {
-        console.error("Error fetching breeds:", error);
-        Alert.alert("Error", "Could not load dog breeds.");
-      } finally {
-        setBreedsLoading(false);
-      }
+        const q = query(collection(db, 'dogBreeds'), orderBy('name'));
+        const snap = await getDocs(q);
+        const data = snap.docs.map(d => ({ id: d.id, ...d.data() } as DogBreed));
+        data.sort((a,b) => a.name.localeCompare(b.name));
+        setBreeds(data);
+      } catch (e) { console.error(e); } 
+      finally { setBreedsLoading(false); }
     };
     fetchBreeds();
   }, []);
 
-  // Smart Preset Application
   useEffect(() => {
-    if (!selectedBreedId || isEditing || breeds.length === 0) return; 
-    
-    const preset = breeds.find(b => b.id === selectedBreedId);
-    if (preset) {
-      // Breeds database should likely store kcal/100g or kcal/kg. 
-      // If your breed DB uses /100g, multiply by 10 here.
-      // Assuming preset.defaultKcal is typical /100g value (e.g. 350-400), we convert to kg.
-      let presetKcal = preset.defaultKcal;
-      if (presetKcal < 2000) presetKcal *= 10;
-      
-      setKcal(presetKcal.toString());
-      setActivityLevel(preset.defaultActivity);
-      setNeuterStatus(preset.defaultNeuterStatus);
-      setSnackPortion(preset.defaultSnackPortion || 15); 
-
-      if (ageInMonths !== null && ageInMonths < 12) {
-        const estimated = estimatePuppyWeight(preset.defaultWeight, ageInMonths);
-        setWeight(estimated.toString());
-      } else {
-        setWeight(preset.defaultWeight.toString());
-      }
+    if (!selectedBreedId || isEditing || breeds.length === 0) return;
+    const p = breeds.find(b => b.id === selectedBreedId);
+    if (p) {
+      let pk = p.defaultKcal; if (pk < 2000) pk *= 10;
+      setKcal(pk.toString());
+      setActivityLevel(p.defaultActivity);
+      setNeuterStatus(p.defaultNeuterStatus);
+      setSnackPortion(p.defaultSnackPortion || 15);
+      if (ageInMonths !== null && ageInMonths < 12) setWeight(estimatePuppyWeight(p.defaultWeight, ageInMonths).toString());
+      else setWeight(p.defaultWeight.toString());
     }
   }, [selectedBreedId, ageInMonths, isEditing, breeds]);
 
-  // Calculate ageInMonths
   useEffect(() => {
     if (birthday) {
       const today = new Date();
-      const birthDate = new Date(birthday);
-      let months = (today.getFullYear() - birthDate.getFullYear()) * 12;
-      months -= birthDate.getMonth();
-      months += today.getMonth();
-      if (today.getDate() < birthDate.getDate()) {
-        months--;
-      }
-      setAgeInMonths(months <= 0 ? 0 : months);
-    } else {
-      setAgeInMonths(null);
-    }
+      const b = new Date(birthday);
+      let m = (today.getFullYear() - b.getFullYear()) * 12;
+      m -= b.getMonth(); m += today.getMonth();
+      if (today.getDate() < b.getDate()) m--;
+      setAgeInMonths(m <= 0 ? 0 : m);
+    } else setAgeInMonths(null);
   }, [birthday]);
 
-  // RTDB Listener for RFID
   useEffect(() => {
     if (!isScanning || !feederId || scanTargetBowl === null) return;
     const rtdb = getDatabase();
-    const commandPath = `commands/${feederId}`;
+    const cmdPath = `commands/${feederId}`;
     const scanRef = ref(rtdb, `scan_pairing/${feederId}/bowl_${scanTargetBowl}`);
-    const scanTimeout = setTimeout(() => {
-      setIsScanning(false);
-      setScanTargetBowl(null);
-      Alert.alert('Scan Timed Out', 'No tag was detected in 30 seconds.');
-      rtdbSet(ref(rtdb, commandPath), { command: `cancel_scan_bowl_${scanTargetBowl}`, timestamp: serverTimestamp() });
-    }, 30500); 
-    const onTagScanned = (snapshot: any) => {
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        if (data.tagId) {
-          clearTimeout(scanTimeout);
-          setRfidTagId(data.tagId); 
-          setIsScanning(false);
-          setScanTargetBowl(null); 
-          Alert.alert('Tag Scanned!', `Tag ID: ${data.tagId} has been assigned.`);
-          rtdbSet(scanRef, null);
-        }
+    const timeout = setTimeout(() => {
+      setIsScanning(false); setScanTargetBowl(null);
+      Alert.alert('Timeout', 'No tag detected.');
+      rtdbSet(ref(rtdb, cmdPath), { command: `cancel_scan_bowl_${scanTargetBowl}`, timestamp: serverTimestamp() });
+    }, 30500);
+    const onTag = (snap: any) => {
+      if (snap.exists() && snap.val().tagId) {
+        clearTimeout(timeout);
+        setRfidTagId(snap.val().tagId);
+        setIsScanning(false); setScanTargetBowl(null);
+        Alert.alert('Success', 'Tag Assigned!');
+        rtdbSet(scanRef, null);
       }
     };
-    onValue(scanRef, onTagScanned);
-    return () => {
-      off(scanRef, 'value', onTagScanned);
-      clearTimeout(scanTimeout);
-      if (isScanning && feederId && scanTargetBowl) {
-        rtdbSet(ref(rtdb, commandPath), { command: `cancel_scan_bowl_${scanTargetBowl}`, timestamp: serverTimestamp() });
-      }
-    };
+    onValue(scanRef, onTag);
+    return () => { off(scanRef, 'value', onTag); clearTimeout(timeout); };
   }, [isScanning, feederId, scanTargetBowl]);
 
-  // Portion Calculation
   useEffect(() => {
-    const calculatePortion = () => {
-      const weightKg = parseFloat(weight);
-      const foodKcalPerKg = parseFloat(kcal); // Now treating this as kcal/kg
-      
-      if (isNaN(weightKg) || weightKg <= 0 || isNaN(foodKcalPerKg) || foodKcalPerKg <= 0 || ageInMonths === null || ageInMonths < 0) {
-        setRecommendedPortion(0);
-        setIdealPortion(null);
-        return;
+    const calc = () => {
+      const w = parseFloat(weight);
+      const k = parseFloat(kcal);
+      if (isNaN(w) || w <= 0 || isNaN(k) || k <= 0 || ageInMonths === null) {
+        setRecommendedPortion(0); setIdealPortion(null); return;
       }
-
-      const getGramsForWeight = (targetWeight: number) => {
-        const rer = 70 * Math.pow(targetWeight, 0.75);
-        let merFactor;
-
-        if (ageInMonths < 4) {
-            if (activityLevel === 'Low') merFactor = 2.8;
-            else if (activityLevel === 'High') merFactor = 3.2;
-            else merFactor = 3.0; 
-        } 
-        else if (ageInMonths < 12) {
-            if (activityLevel === 'Low') merFactor = 1.8;
-            else if (activityLevel === 'High') merFactor = 2.2;
-            else merFactor = 2.0;
-        } 
-        else {
-            merFactor = 1.6; 
-            if (neuterStatus === 'Neutered/Spayed') {
-                if (activityLevel === 'Low') merFactor = 1.4;
-                if (activityLevel === 'High') merFactor = 1.8;
-            } else {
-                if (activityLevel === 'Low') merFactor = 1.4;
-                if (activityLevel === 'Normal') merFactor = 1.8;
-                if (activityLevel === 'High') merFactor = 3.0; 
-            }
-        }
-        
-        const mer = rer * merFactor;
-        
-        // --- FORMULA UPDATE ---
-        // Old (kcal/100g): (mer / foodKcal) * 100
-        // New (kcal/kg):   (mer / foodKcalPerKg) * 1000
-        return Math.round((mer / foodKcalPerKg) * 1000);
+      const getGrams = (tw: number) => {
+        const rer = 70 * Math.pow(tw, 0.75);
+        let f = 1.6;
+        if (ageInMonths < 4) f = activityLevel === 'Low' ? 2.8 : activityLevel === 'High' ? 3.2 : 3.0;
+        else if (ageInMonths < 12) f = activityLevel === 'Low' ? 1.8 : activityLevel === 'High' ? 2.2 : 2.0;
+        else if (neuterStatus === 'Neutered/Spayed') f = activityLevel === 'Low' ? 1.4 : activityLevel === 'High' ? 1.8 : 1.6;
+        else f = activityLevel === 'Low' ? 1.4 : activityLevel === 'High' ? 3.0 : 1.8;
+        return Math.round(((rer * f) / k) * 1000);
       };
-
-      const currentGrams = getGramsForWeight(weightKg);
-      setRecommendedPortion(currentGrams);
-
-      if (ageInMonths >= 12 && selectedBreedId && breeds.length > 0) {
-        const preset = breeds.find(b => b.id === selectedBreedId);
-        if (preset && preset.defaultWeight) {
-           if (weightKg > preset.defaultWeight * 1.15) {
-              const idealGrams = getGramsForWeight(preset.defaultWeight);
-              setIdealPortion(idealGrams);
-           } else {
-              setIdealPortion(null);
-           }
-        }
-      } else {
-        setIdealPortion(null);
-      }
+      setRecommendedPortion(getGrams(w));
+      if (ageInMonths >= 12 && selectedBreedId) {
+        const p = breeds.find(b => b.id === selectedBreedId);
+        if (p && p.defaultWeight && w > p.defaultWeight * 1.15) setIdealPortion(getGrams(p.defaultWeight));
+        else setIdealPortion(null);
+      } else setIdealPortion(null);
     };
-    calculatePortion();
+    calc();
   }, [weight, kcal, neuterStatus, activityLevel, ageInMonths, selectedBreedId, breeds]);
 
-
-  // Scan Handler
   const handleScanTag = async () => {
-    if (!feederId) {
-      Alert.alert('Error', 'Feeder not found. Cannot start scan.');
-      return;
-    }
-    setScanTargetBowl(assignedBowl); 
-    setIsScanning(true);
-    Alert.alert(
-      `Scanning for Bowl ${assignedBowl}...`,
-      "Please scan your pet's tag near the correct reader now.",
-      [{ text: 'Cancel', onPress: () => { setIsScanning(false); setScanTargetBowl(null); }, style: 'cancel' }],
-      { cancelable: false } 
-    );
+    if (!feederId) return;
+    setScanTargetBowl(assignedBowl); setIsScanning(true);
     try {
-      const rtdb = getDatabase();
-      await rtdbSet(ref(rtdb, `scan_pairing/${feederId}/bowl_${assignedBowl}`), null);
-      const commandPath = `commands/${feederId}`;
-      const command = `scan_tag_bowl_${assignedBowl}`;
-      await rtdbSet(ref(rtdb, commandPath), { command: command, timestamp: serverTimestamp() });
-    } catch (error) {
-      console.error(`Error sending ${`scan_tag_bowl_${assignedBowl}`} command:`, error);
-      Alert.alert('Error', 'Could not send scan command to feeder.');
-      setIsScanning(false);
-      setScanTargetBowl(null);
-    }
+        const rtdb = getDatabase();
+        await rtdbSet(ref(rtdb, `scan_pairing/${feederId}/bowl_${assignedBowl}`), null);
+        await rtdbSet(ref(rtdb, `commands/${feederId}`), { command: `scan_tag_bowl_${assignedBowl}`, timestamp: serverTimestamp() });
+    } catch (e) { setIsScanning(false); }
   };
- 
-  // Image Picker
+
   const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Sorry, we need camera roll permissions to make this work!');
-      return;
-    }
-
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1], 
-      quality: 0.5,
-    });
-
-    if (!result.canceled) {
-      setLocalImageUri(result.assets[0].uri);
-    }
+    if (status !== 'granted') { Alert.alert('Permission needed'); return; }
+    let res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1,1], quality: 0.5 });
+    if (!res.canceled) setLocalImageUri(res.assets[0].uri);
   };
 
-  // Direct REST API Upload
-  const uploadImage = async (uri: string, petId: string): Promise<string | null> => {
-    if (!feederId || !user) {
-      console.error("Feeder ID or User is null, cannot upload image.");
-      return null;
-    }
-    
-    let blob: any = null;
-
+  const uploadImage = async (uri: string, pId: string) => {
+    if (!feederId || !user) return null;
     try {
-      console.log("Creating Native Blob...");
-      blob = await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.onload = function () {
-          resolve(xhr.response);
-        };
-        xhr.onerror = function (e) {
-          console.log("XHR Error:", e);
-          reject(new TypeError("Network request failed"));
-        };
-        xhr.responseType = "blob";
-        xhr.open("GET", uri, true);
-        xhr.send(null);
-      });
-
-      const bucketName = storage.app.options.storageBucket;
-      if (!bucketName) {
-         throw new Error("Storage bucket name not found in Firebase Config.");
-      }
-      const filePath = `pet_photos/${feederId}/${petId}.jpg`;
-      const url = `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o?name=${encodeURIComponent(filePath)}`;
-      const authToken = await user.getIdToken();
-      const response = await fetch(url, {
-        method: 'POST',
-        body: blob,
-        headers: {
-          'Content-Type': 'image/jpeg',
-          'Authorization': `Bearer ${authToken}`, 
-        },
-      });
-
-      if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
-      const data = await response.json();
-      const downloadToken = data.downloadTokens;
-      return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(filePath)}?alt=media&token=${downloadToken}`;
-
-    } catch (error: any) {
-      console.error("Error uploading image:", error);
-      return null;
-    } finally {
-      if (blob && typeof blob.close === 'function') blob.close();
-    }
+        const blob: any = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.onload = function() { resolve(xhr.response); };
+            xhr.onerror = function(e) { reject(new TypeError("Network request failed")); };
+            xhr.responseType = "blob";
+            xhr.open("GET", uri, true);
+            xhr.send(null);
+        });
+        const path = `pet_photos/${feederId}/${pId}.jpg`;
+        const url = `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(storage.app.options.storageBucket!)}/o?name=${encodeURIComponent(path)}`;
+        const token = await user.getIdToken();
+        const res = await fetch(url, { method: 'POST', body: blob, headers: { 'Content-Type': 'image/jpeg', 'Authorization': `Bearer ${token}` } });
+        if (!res.ok) throw new Error("Upload failed");
+        const json = await res.json();
+        return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(storage.app.options.storageBucket!)}/o/${encodeURIComponent(path)}?alt=media&token=${json.downloadTokens}`;
+    } catch (e) { console.error(e); return null; }
   };
 
-  // --- HANDLE SAVE WITH SWAP LOGIC ---
   const handleSave = async () => {
-    if (!name || !birthday || !weight || !kcal) {
-      Alert.alert('Missing Information', 'Please fill out Name, Birthday, Weight, and Kcal fields.');
-      return;
-    }
-    if (!rfidTagId) {
-      Alert.alert('Missing Information', 'Please scan and assign an RFID tag to this pet.');
-      return;
-    }
-    if (!feederId) {
-      Alert.alert('Error', 'Feeder ID not found. Cannot save pet.');
-      return;
-    }
-   
-    setIsLoading(true); 
-    
-    const petData = {
-      name,
-      birthday: Timestamp.fromDate(birthday), 
-      weight: parseFloat(weight),
-      kcal: parseInt(kcal, 10), // Saves as kcal/kg (e.g. 3300)
-      neuterStatus,
-      activityLevel,
-      recommendedPortion,
-      snackPortion, 
-      rfidTagId: rfidTagId,
-      bowlNumber: assignedBowl,
-      breed: selectedBreedId ? breeds.find(b => b.id === selectedBreedId)?.name : 'Unknown',
-    };
+    if (!name || !birthday || !weight || !kcal) { Alert.alert('Missing Info', 'Fill all fields.'); return; }
+    if (!rfidTagId) { Alert.alert('Missing Info', 'Please scan a tag.'); return; }
+    if (!feederId) return;
+    setIsLoading(true);
 
     try {
-      const batch = writeBatch(db);
+        const petsRef = collection(db, 'feeders', feederId, 'pets');
+        const dupQ = query(petsRef, where('rfidTagId', '==', rfidTagId));
+        const dupSnap = await getDocs(dupQ);
+        if (dupSnap.docs.find(d => d.id !== (isEditing ? id : ''))) {
+            Alert.alert('Duplicate Tag', 'Tag already assigned.'); setIsLoading(false); return;
+        }
 
-      // --- DUPLICATE TAG CHECK ---
-      const petsRef = collection(db, 'feeders', feederId, 'pets');
-      const duplicateQuery = query(petsRef, where('rfidTagId', '==', rfidTagId));
-      const duplicateSnapshot = await getDocs(duplicateQuery);
+        const batch = writeBatch(db);
+        let petRef = (isEditing && id) ? doc(db, 'feeders', feederId, 'pets', id) : doc(collection(db, 'feeders', feederId, 'pets'));
+        let finalUrl = photoUrl;
+        if (localImageUri) {
+            const u = await uploadImage(localImageUri, petRef.id);
+            if (u) finalUrl = u;
+        }
 
-      const duplicatePet = duplicateSnapshot.docs.find(doc => doc.id !== (isEditing ? id : ''));
+        const conflict = occupiedBowls.find(p => p.bowlNumber === assignedBowl);
+        if (conflict) {
+            const target = assignedBowl === 1 ? 2 : 1;
+            const conRef = doc(db, 'feeders', feederId, 'pets', conflict.petId);
+            batch.update(conRef, { bowlNumber: target });
+            const sQ = query(collection(db, 'feeders', feederId, 'schedules'), where('petId', '==', conflict.petId));
+            const sSnap = await getDocs(sQ);
+            sSnap.forEach(s => batch.update(s.ref, { bowlNumber: target }));
+        }
 
-      if (duplicatePet) {
-        Alert.alert(
-          'Duplicate Tag Detected', 
-          `The tag "${rfidTagId}" is already assigned to ${duplicatePet.data().name}. \n\nPlease scan a different tag or reset the other pet.`
-        );
-        setIsLoading(false);
-        return; 
-      }
+        const data = {
+            name, birthday: Timestamp.fromDate(birthday), weight: parseFloat(weight), kcal: parseInt(kcal),
+            neuterStatus, activityLevel, recommendedPortion, snackPortion, rfidTagId, bowlNumber: assignedBowl,
+            breed: selectedBreedId ? breeds.find(b => b.id === selectedBreedId)?.name : 'Unknown',
+            photoUrl: finalUrl
+        };
 
-      // 1. Determine Ref for Current Pet
-      let petDocRef;
-      if (isEditing && id) {
-        petDocRef = doc(db, 'feeders', feederId, 'pets', id);
-      } else {
-        petDocRef = doc(collection(db, 'feeders', feederId, 'pets')); 
-      }
-
-      // 2. Handle Image Upload
-      let finalPhotoUrl = photoUrl;
-      if (localImageUri) {
-         const uploadedUrl = await uploadImage(localImageUri, petDocRef.id);
-         if (uploadedUrl) finalPhotoUrl = uploadedUrl;
-      }
-
-      // 3. Check for Conflicts & Swap
-      const conflictPet = occupiedBowls.find(p => p.bowlNumber === assignedBowl);
-      let swapped = false;
-
-      if (conflictPet) {
-          const conflictPetRef = doc(db, 'feeders', feederId, 'pets', conflictPet.petId);
-          
-          let targetBowlForConflict = initialBowl; 
-          if (!targetBowlForConflict) {
-              targetBowlForConflict = assignedBowl === 1 ? 2 : 1;
-          }
-
-          batch.update(conflictPetRef, { bowlNumber: targetBowlForConflict });
-
-          const conflictSchedulesQ = query(
-             collection(db, 'feeders', feederId, 'schedules'), 
-             where('petId', '==', conflictPet.petId)
-          );
-          const conflictSchedulesSnap = await getDocs(conflictSchedulesQ);
-          conflictSchedulesSnap.forEach(sDoc => {
-              batch.update(sDoc.ref, { bowlNumber: targetBowlForConflict });
-          });
-
-          swapped = true;
-          console.log(`Swapping: ${conflictPet.petName} moved to Bowl ${targetBowlForConflict}`);
-      }
-
-      // 4. Update/Set Current Pet
-      if (isEditing) {
-          batch.update(petDocRef, { ...petData, photoUrl: finalPhotoUrl });
-          
-          if (initialBowl !== assignedBowl) {
-              const mySchedulesQ = query(
-                  collection(db, 'feeders', feederId, 'schedules'), 
-                  where('petId', '==', id)
-              );
-              const mySchedulesSnap = await getDocs(mySchedulesQ);
-              mySchedulesSnap.forEach(sDoc => {
-                  batch.update(sDoc.ref, { bowlNumber: assignedBowl });
-              });
-          }
-      } else {
-          batch.set(petDocRef, { ...petData, photoUrl: finalPhotoUrl });
-      }
-
-      // 5. Commit
-      await batch.commit();
-      
-      // 6. Recalculate portions logic
-      await recalculatePortionsForPet(feederId, petDocRef.id, recommendedPortion);
-      
-      if (conflictPet) {
-          await recalculatePortionsForPet(feederId, conflictPet.petId);
-      }
-
-      Alert.alert(
-          swapped ? 'Bowls Swapped!' : (isEditing ? 'Pet Updated!' : 'Pet Saved!'), 
-          swapped 
-            ? `${name} is now on Bowl ${assignedBowl}, and ${conflictPet?.petName} moved to the other bowl.`
-            : `Profile for ${name} has been saved.`
-      );
-      
-      router.back();
-      
-    } catch (error) {
-      console.error("Error saving pet: ", error);
-      Alert.alert('Error', 'There was a problem saving the pet profile.');
-    } finally {
-      setIsLoading(false); 
-    }
-  };
-
-  // Delete Handler
-  const handleDelete = () => {
-    Alert.alert(
-      'Delete Pet',
-      `Are you sure you want to delete ${name}'s profile?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            if (isEditing && id && feederId) {
-              setIsLoading(true);
-              try {
-                const batch = writeBatch(db);
-                const petDocRef = doc(db, 'feeders', feederId, 'pets', id);
-                batch.delete(petDocRef);
-                const schedulesRef = collection(db, 'feeders', feederId, 'schedules');
-                const q = query(schedulesRef, where('petId', '==', id));
-                const schedulesSnapshot = await getDocs(q);
-                schedulesSnapshot.forEach((scheduleDoc) => {
-                    batch.delete(scheduleDoc.ref);
-                });
-                await batch.commit();
-                Alert.alert('Pet Deleted', `${name}'s profile and schedules have been removed.`);
-                router.back();
-              } catch (error) {
-                console.error("Error deleting pet: ", error);
-                Alert.alert('Error', 'There was a problem deleting the pet profile.');
-              } finally {
-                setIsLoading(false);
-              }
+        if (isEditing) {
+            batch.update(petRef, data);
+            if (initialBowl !== assignedBowl) {
+                const sQ = query(collection(db, 'feeders', feederId, 'schedules'), where('petId', '==', id));
+                const sSnap = await getDocs(sQ);
+                sSnap.forEach(s => batch.update(s.ref, { bowlNumber: assignedBowl }));
             }
-          }
-        },
-      ]
-    );
-  };
-  
-  // Date Picker Handler
-  const onDateChange = (event: any, selectedDate?: Date) => {
-    const currentDate = selectedDate || birthday;
-    setShowDatePicker(Platform.OS === 'ios');
-    if (currentDate) {
-      setBirthday(currentDate);
-    }
+        } else {
+            batch.set(petRef, data);
+        }
+
+        await batch.commit();
+        await recalculatePortionsForPet(feederId, petRef.id, recommendedPortion);
+        if (conflict) await recalculatePortionsForPet(feederId, conflict.petId);
+        
+        router.back();
+    } catch (e) { Alert.alert('Error', 'Save failed.'); } finally { setIsLoading(false); }
   };
 
-  const filteredBreeds = breeds.filter(b => 
-    b.name.toLowerCase().includes(breedSearch.toLowerCase())
-  );
- 
-  if (isLoading || (breedsLoading && !isEditing)) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={{ marginTop: 10, color: COLORS.text }}>
-          {isLoading ? "Saving Pet..." : (breedsLoading ? "Loading Breeds..." : "Loading Pet...")}
-        </Text>
-      </View>
-    );
-  }
-  
-  const getBadgeStyle = (size: string) => {
-      switch (size) {
-          case 'Small': return { backgroundColor: '#E8F5E9', color: '#2E7D32' }; 
-          case 'Medium': return { backgroundColor: '#FFF3E0', color: '#EF6C00' }; 
-          case 'Large': return { backgroundColor: '#FFEBEE', color: '#C62828' }; 
-          default: return { backgroundColor: COLORS.lightGray, color: COLORS.text };
-      }
+  const handleDelete = () => {
+      Alert.alert('Delete', 'Delete profile?', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: async () => {
+              if (isEditing && id && feederId) {
+                  setIsLoading(true);
+                  const batch = writeBatch(db);
+                  batch.delete(doc(db, 'feeders', feederId, 'pets', id));
+                  const sSnap = await getDocs(query(collection(db, 'feeders', feederId, 'schedules'), where('petId', '==', id)));
+                  sSnap.forEach(s => batch.delete(s.ref));
+                  await batch.commit();
+                  router.back();
+              }
+          }}
+      ]);
   };
+
+  if (isLoading || breedsLoading) return <View style={styles.center}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
+
+  const filteredBreeds = breeds.filter(b => b.name.toLowerCase().includes(breedSearch.toLowerCase()));
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      <StatusBar barStyle="dark-content" />
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+      
+      {/* HEADER */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <MaterialCommunityIcons name="arrow-left" size={28} color={COLORS.primary} />
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="close" size={28} color={COLORS.primary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{isEditing ? 'Edit Pet Profile' : 'Add New Pet'}</Text>
-        <View style={{ width: 28 }} />
+        <Text style={styles.headerTitle}>{isEditing ? 'Edit Profile' : 'New Pet'}</Text>
+        <TouchableOpacity onPress={handleSave} style={styles.saveBtn} disabled={isLoading}>
+           <Text style={styles.saveBtnText}>Save</Text>
+        </TouchableOpacity>
       </View>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+
+      <ScrollView contentContainerStyle={styles.content}>
         
-        <TouchableOpacity style={styles.photoContainer} onPress={handlePickImage}>
-          { (localImageUri || photoUrl) ? (
-            <Image 
-              source={{ uri: localImageUri || photoUrl! }} 
-              style={styles.petImage} 
-            />
-          ) : (
-            <MaterialCommunityIcons name="plus" size={48} color={COLORS.lightGray} />
-          )}
+        {/* AVATAR */}
+        <TouchableOpacity style={styles.avatarSection} onPress={handlePickImage}>
+           <View style={[styles.avatarCircle, { borderColor: assignedBowl === 1 ? COLORS.bowl1 : COLORS.bowl2 }]}>
+             {(localImageUri || photoUrl) ? (
+                 <Image source={{ uri: localImageUri || photoUrl! }} style={styles.avatarImg} />
+             ) : (
+                 <MaterialCommunityIcons name="camera-plus" size={40} color={COLORS.subText} />
+             )}
+             <View style={[styles.bowlIndicator, { backgroundColor: assignedBowl === 1 ? COLORS.bowl1 : COLORS.bowl2 }]}>
+                 <Text style={styles.bowlIndicatorText}>{assignedBowl}</Text>
+             </View>
+           </View>
         </TouchableOpacity>
 
+        {/* BREED PRESET */}
         {!isEditing && (
-          <>
-            <Text style={styles.label}>Start with a Breed Preset (Optional)</Text>
-            
-            <TouchableOpacity 
-                style={styles.breedSelectButton} 
-                onPress={() => setBreedModalVisible(true)}
-            >
-                {selectedBreedId ? (
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                         <Text style={styles.breedSelectText}>
-                            {breeds.find(b => b.id === selectedBreedId)?.name}
-                         </Text>
-                         {(() => {
-                             const breed = breeds.find(b => b.id === selectedBreedId);
-                             if (!breed) return null;
-                             const badge = getBadgeStyle(breed.size);
-                             return (
-                                 <View style={[styles.sizeBadge, { backgroundColor: badge.backgroundColor, marginLeft: 10 }]}>
-                                     <Text style={[styles.sizeBadgeText, { color: badge.color }]}>{breed.size}</Text>
-                                 </View>
-                             );
-                         })()}
-                    </View>
-                ) : (
-                    <Text style={[styles.breedSelectText, { color: COLORS.mediumGray }]}>-- Tap to Select Breed --</Text>
-                )}
-                <MaterialCommunityIcons name="chevron-down" size={24} color={COLORS.mediumGray} />
-            </TouchableOpacity>
+            <View style={styles.section}>
+                <Text style={styles.label}>Start with Preset</Text>
+                <TouchableOpacity style={styles.dropdownBtn} onPress={() => setBreedModalVisible(true)}>
+                    <Text style={[styles.dropdownText, !selectedBreedId && { color: '#AAA' }]}>
+                        {selectedBreedId ? breeds.find(b => b.id === selectedBreedId)?.name : 'Select Breed'}
+                    </Text>
+                    <Ionicons name="chevron-down" size={20} color={COLORS.subText} />
+                </TouchableOpacity>
+            </View>
+        )}
 
-            <Modal
-                visible={isBreedModalVisible}
-                animationType="slide"
-                presentationStyle="pageSheet"
-                onRequestClose={() => setBreedModalVisible(false)}
-            >
-                <View style={styles.modalContainer}>
-                    <View style={styles.modalHeader}>
-                        <Text style={styles.modalTitle}>Select a Breed</Text>
-                        <TouchableOpacity onPress={() => setBreedModalVisible(false)}>
-                            <MaterialCommunityIcons name="close" size={24} color={COLORS.text} />
-                        </TouchableOpacity>
+        {/* BASIC INFO */}
+        <View style={styles.section}>
+            <Text style={styles.label}>Basic Info</Text>
+            <View style={styles.inputRow}>
+                <Ionicons name="paw-outline" size={20} color={COLORS.subText} />
+                <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Pet Name" placeholderTextColor="#AAA" />
+            </View>
+            <View style={styles.splitRow}>
+                <View style={[styles.column, { marginRight: 8 }]}>
+                    <View style={styles.inputRow}>
+                        <MaterialCommunityIcons name="weight" size={20} color={COLORS.subText} />
+                        <TextInput style={styles.input} value={weight} onChangeText={setWeight} placeholder="Weight (kg)" keyboardType="numeric" placeholderTextColor="#AAA" />
                     </View>
                     
-                    <View style={styles.searchContainer}>
-                         <MaterialCommunityIcons name="magnify" size={20} color={COLORS.mediumGray} />
-                         <TextInput 
-                            style={styles.searchInput}
-                            placeholder="Search breeds (e.g., Poodle, Bulldog)"
-                            value={breedSearch}
-                            onChangeText={setBreedSearch}
-                            autoFocus={false}
-                         />
-                    </View>
-
-                    <FlatList
-                        data={filteredBreeds}
-                        keyExtractor={item => item.id}
-                        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 40 }}
-                        renderItem={({ item }) => {
-                            const badge = getBadgeStyle(item.size);
-                            return (
-                                <TouchableOpacity 
-                                    style={styles.breedItem}
-                                    onPress={() => {
-                                        setSelectedBreedId(item.id);
-                                        setBreedModalVisible(false);
-                                        setBreedSearch(''); 
-                                    }}
-                                >
-                                    <Text style={styles.breedItemText}>{item.name}</Text>
-                                    <View style={[styles.sizeBadge, { backgroundColor: badge.backgroundColor }]}>
-                                        <Text style={[styles.sizeBadgeText, { color: badge.color }]}>{item.size}</Text>
-                                    </View>
-                                </TouchableOpacity>
-                            );
-                        }}
-                        ListEmptyComponent={
-                            <Text style={styles.emptyText}>No breeds found matching "{breedSearch}"</Text>
-                        }
-                    />
+                    {/* --- RESTORED: Weight Estimation Warning --- */}
+                    {ageInMonths !== null && ageInMonths < 12 && (
+                        <View style={styles.infoRow}>
+                            <MaterialCommunityIcons name="alert-circle-outline" size={14} color={COLORS.warning} />
+                            <Text style={styles.warningText}>Estimated by age. Verify!</Text>
+                        </View>
+                    )}
                 </View>
-            </Modal>
-          </>
-        )}
 
-        <Text style={styles.label}>{"Pet's Name"}</Text>
-        <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="e.g., Buddy" />
-
-        <View style={styles.row}>
-          <View style={styles.column}>
-            <Text style={styles.label}>Birthday</Text>
-            <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.input}>
-              <Text style={birthday ? styles.dateText : styles.datePlaceholder}>
-                {birthday ? birthday.toLocaleDateString() : "Select date..."}
-              </Text>
-            </TouchableOpacity>
-            {birthday && (
-              <View style={styles.infoContainer}>
-                <MaterialCommunityIcons name="calendar-clock" size={16} color={COLORS.info} />
-                <Text style={[styles.helperText, { color: COLORS.info }]}>
-                  {` ${getAgeString(birthday)}`}
-                </Text>
-              </View>
-            )}
-          </View>
-          <View style={styles.column}>
-            <Text style={styles.label}>Weight (kg)</Text>
-            <TextInput style={styles.input} value={weight} onChangeText={setWeight} placeholder="e.g., 15" keyboardType="numeric" />
+                <TouchableOpacity style={[styles.inputRow, { flex: 1, marginLeft: 8 }]} onPress={() => setShowDatePicker(true)}>
+                    <MaterialCommunityIcons name="cake-variant" size={20} color={COLORS.subText} />
+                    <Text style={[styles.inputText, !birthday && { color: '#AAA' }]}>{birthday ? birthday.toLocaleDateString() : 'Birthday'}</Text>
+                </TouchableOpacity>
+            </View>
             
-            <View style={styles.infoContainer}>
-                <MaterialCommunityIcons 
-                    name={ageInMonths !== null && ageInMonths < 12 ? "alert-circle-outline" : "scale"} 
-                    size={16} 
-                    color={ageInMonths !== null && ageInMonths < 12 ? COLORS.warning : COLORS.text} 
-                />
-                <Text style={[styles.helperText, ageInMonths !== null && ageInMonths < 12 && { color: COLORS.warning, fontWeight: 'bold' }]}>
-                    {ageInMonths !== null && ageInMonths < 12 
-                        ? " Estimated based on age. Please verify!" 
-                        : " Enter current weight"
-                    }
+            {/* --- RESTORED: Age/Puppy Text --- */}
+            {ageInMonths !== null && (
+                <Text style={styles.helperText}>
+                    {getAgeString(birthday)} {ageInMonths < 12 && <Text style={{color: COLORS.accent, fontWeight: 'bold'}}>(Puppy Mode Active)</Text>}
                 </Text>
+            )}
+        </View>
+
+        {/* DIET */}
+        <View style={styles.section}>
+            <Text style={styles.label}>Calories</Text>
+            <View style={styles.inputRow}>
+                <MaterialCommunityIcons name="food-drumstick-outline" size={20} color={COLORS.subText} />
+                <TextInput style={styles.input} value={kcal} onChangeText={setKcal} placeholder="Calories (kcal/kg)" keyboardType="numeric" placeholderTextColor="#AAA" />
             </View>
-          </View>
+            
+            {/* --- RESTORED: Calories Info Tip --- */}
+            <View style={[styles.infoRow, { marginBottom: 12 }]}>
+                 <MaterialCommunityIcons name="information-outline" size={16} color={COLORS.info} />
+                 <Text style={[styles.helperText, {color: COLORS.info, marginLeft: 4}]}>
+                     Listed as "Metabolizable Energy" on bag
+                 </Text>
+            </View>
+
+            <View style={styles.segContainer}>
+                {['Neutered/Spayed', 'Intact'].map((opt) => (
+                    <TouchableOpacity key={opt} style={[styles.segBtn, neuterStatus === opt && styles.segBtnActive]} onPress={() => setNeuterStatus(opt)}>
+                        <Text style={[styles.segText, neuterStatus === opt && styles.segTextActive]}>{opt}</Text>
+                    </TouchableOpacity>
+                ))}
+            </View>
+            <View style={styles.segContainer}>
+                {['Low', 'Normal', 'High'].map((opt) => (
+                    <TouchableOpacity key={opt} style={[styles.segBtn, activityLevel === opt && styles.segBtnActive]} onPress={() => setActivityLevel(opt)}>
+                        <Text style={[styles.segText, activityLevel === opt && styles.segTextActive]}>{opt}</Text>
+                    </TouchableOpacity>
+                ))}
+            </View>
         </View>
 
-        {showDatePicker && (
-          <DateTimePicker
-            testID="dateTimePicker"
-            value={birthday || new Date()}
-            mode="date"
-            display="default"
-            onChange={onDateChange}
-            maximumDate={new Date()}
-            accentColor={Platform.OS === 'ios' ? COLORS.primary : undefined} 
-          />
-        )}
+        {/* BOWL & RFID */}
+        <View style={styles.section}>
+            <Text style={styles.label}>Bowl Assignment</Text>
+            <View style={styles.bowlRow}>
+                {[1, 2].map(num => {
+                    const occupant = occupiedBowls.find(o => o.bowlNumber === num);
+                    const isTaken = occupant && occupant.petId !== id;
+                    const isActive = assignedBowl === num;
+                    const color = num === 1 ? COLORS.bowl1 : COLORS.bowl2;
+                    return (
+                        <TouchableOpacity key={num} style={[styles.bowlCard, isActive && { borderColor: color, backgroundColor: '#FDFDFD' }]} onPress={() => setAssignedBowl(num)}>
+                            <MaterialCommunityIcons name="bowl-mix" size={32} color={isActive ? color : '#DDD'} />
+                            <Text style={[styles.bowlTitle, isActive && { color }]}>Bowl {num}</Text>
+                            {isTaken ? (
+                                <Text style={styles.bowlSub}>Swap with {occupant.petName}</Text>
+                            ) : (
+                                <Text style={[styles.bowlSub, { color: COLORS.success }]}>Available</Text>
+                            )}
+                        </TouchableOpacity>
+                    );
+                })}
+            </View>
 
-        {/* --- UPDATED LABEL FOR KCAL/KG --- */}
-        <Text style={styles.label}>Food Calories (kcal/kg)</Text>
-        <TextInput 
-          style={styles.input} 
-          value={kcal} 
-          onChangeText={setKcal} 
-          placeholder="e.g., 3500 (Check back of bag)" 
-          keyboardType="numeric" 
-        />
-        
-        <View style={styles.infoContainer}>
-             <MaterialCommunityIcons name="information-outline" size={16} color={COLORS.info} />
-             <Text style={[styles.helperText, {color: COLORS.info}]}>
-                 Listed as "Metabolizable Energy" on bag
-             </Text>
+            <TouchableOpacity style={[styles.rfidCard, isScanning && styles.rfidScanning]} onPress={handleScanTag} disabled={isScanning}>
+                <MaterialCommunityIcons name="radio-tower" size={32} color={isScanning ? '#FFF' : COLORS.secondary} />
+                <View style={{ marginLeft: 16, flex: 1 }}>
+                    <Text style={[styles.rfidTitle, isScanning && { color: '#FFF' }]}>
+                        {isScanning ? 'Scanning...' : (rfidTagId ? 'Tag Linked' : 'Scan RFID Tag')}
+                    </Text>
+                    <Text style={[styles.rfidSub, isScanning && { color: '#EEE' }]}>
+                        {rfidTagId ? `ID: ${rfidTagId}` : 'Tap to pair collar tag'}
+                    </Text>
+                </View>
+                {rfidTagId && !isScanning && <Ionicons name="checkmark-circle" size={24} color={COLORS.success} />}
+            </TouchableOpacity>
         </View>
 
-        <Text style={styles.label}>Sex / Neuter Status</Text>
-        <SegmentedControl 
-          options={['Neutered/Spayed', 'Intact']} 
-          selected={neuterStatus} 
-          onSelect={setNeuterStatus} 
-        />
-       
-        <Text style={styles.label}>Activity Level</Text>
-        <SegmentedControl 
-          options={['Low', 'Normal', 'High']} 
-          selected={activityLevel} 
-          onSelect={setActivityLevel} 
-        />
-
-        <Text style={styles.label}>Assign to Bowl</Text>
-        <View style={styles.pickerContainer}>
-          <Picker
-            selectedValue={assignedBowl}
-            onValueChange={(itemValue: number) => setAssignedBowl(itemValue)}
-            style={styles.picker}
-          >
-             {[1, 2].map(bowlNum => {
-                 const occupant = occupiedBowls.find(o => o.bowlNumber === bowlNum);
-                 const isTaken = occupant && (occupant.petId !== id); 
-                 
-                 let label = `Bowl ${bowlNum}`;
-                 if (isTaken) {
-                     label += ` (Swaps with ${occupant?.petName})`;
-                 } else {
-                     label += ` (Available)`;
-                 }
-                 
-                 return <Picker.Item key={bowlNum} label={label} value={bowlNum} />;
-             })}
-          </Picker>
-        </View>
-
-        <Text style={styles.label}>Assigned RFID Tag</Text>
-        <TextInput
-          style={[styles.input, styles.disabledInput]}
-          value={rfidTagId}
-          placeholder="Scan tag below"
-          editable={false}
-        />
-        <TouchableOpacity
-          style={[styles.button, isScanning ? styles.scanningButton : styles.scanButton]}
-          onPress={handleScanTag}
-          disabled={isScanning || isLoading} 
-        >
-          {isScanning ? (
-            <>
-              <ActivityIndicator color={COLORS.text} style={{ marginRight: 10 }} />
-              <Text style={styles.saveButtonText}>{`Waiting for Scan (Bowl ${assignedBowl})...`}</Text>
-            </>
-          ) : (
-            <Text style={styles.saveButtonText}>
-              {rfidTagId ? `Re-Scan Tag for Bowl ${assignedBowl}` : `Scan Pet Tag for Bowl ${assignedBowl}`}
-            </Text>
-          )}
-        </TouchableOpacity>
-
+        {/* RESULT */}
         <View style={styles.resultCard}>
-          <Text style={styles.resultLabel}>Recommended Daily Portion</Text>
-          <Text style={styles.resultValue}>{recommendedPortion}g</Text>
-          <Text style={styles.resultSubtext}>
-            {ageInMonths !== null && ageInMonths < 12 
-              ? "Based on puppy growth formula." 
-              : "Based on adult maintenance formula."
-            }
-          </Text>
-
-          {idealPortion !== null && (
-            <View style={styles.dietContainer}>
-               <View style={styles.dietHeader}>
-                 <MaterialCommunityIcons name="scale-bathroom" size={20} color={COLORS.warning} />
-                 <Text style={styles.dietTitle}>Weight Management Insight</Text>
-               </View>
-               <Text style={styles.dietText}>
-                 Your entered weight ({weight}kg) is higher than the breed average.
-               </Text>
-               <Text style={styles.dietText}>
-                 If your goal is weight loss, consider feeding for the ideal weight:
-               </Text>
-               <Text style={styles.dietValue}>{idealPortion}g / day</Text>
-            </View>
-          )}
+            <Text style={styles.resultTitle}>Daily Goal</Text>
+            <Text style={styles.resultValue}>{recommendedPortion}<Text style={{fontSize: 20}}>g</Text></Text>
+            
+            {/* --- RESTORED: Detailed Diet Insight --- */}
+            {idealPortion && (
+                <View style={styles.dietContainer}>
+                    <View style={styles.dietHeader}>
+                        <MaterialCommunityIcons name="scale-bathroom" size={20} color={COLORS.warning} />
+                        <Text style={styles.dietTitle}>Weight Insight</Text>
+                    </View>
+                    <Text style={styles.dietText}>
+                        Your entered weight ({weight}kg) is higher than the breed average.
+                        For weight loss, consider feeding:
+                    </Text>
+                    <Text style={styles.dietValue}>{idealPortion}g / day</Text>
+                </View>
+            )}
         </View>
 
-        <TouchableOpacity 
-          style={styles.saveButton} 
-          onPress={handleSave} 
-          disabled={isLoading || isScanning} 
-        >
-          <Text style={styles.saveButtonText}>{isEditing ? 'Update Pet' : 'Save Pet'}</Text>
-        </TouchableOpacity>
-       
         {isEditing && (
-          <TouchableOpacity 
-            style={styles.deleteButton} 
-            onPress={handleDelete}
-            disabled={isLoading || isScanning} 
-          >
-            <Text style={styles.deleteButtonText}>Delete Pet</Text>
-          </TouchableOpacity>
+             <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete}>
+                 <Text style={styles.deleteText}>Delete Profile</Text>
+             </TouchableOpacity>
         )}
+
       </ScrollView>
+
+      {/* BREED MODAL */}
+      <Modal visible={isBreedModalVisible} animationType="slide" presentationStyle="pageSheet">
+          <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Breed</Text>
+              <TouchableOpacity onPress={() => setBreedModalVisible(false)}><Ionicons name="close" size={24} /></TouchableOpacity>
+          </View>
+          <View style={styles.searchBar}>
+              <Ionicons name="search" size={20} color="#999" />
+              <TextInput style={{flex:1, marginLeft:8}} placeholder="Search..." value={breedSearch} onChangeText={setBreedSearch} />
+          </View>
+          <FlatList 
+            data={filteredBreeds} 
+            keyExtractor={i => i.id} 
+            renderItem={({item}) => (
+                <TouchableOpacity style={styles.breedItem} onPress={() => { setSelectedBreedId(item.id); setBreedSearch(''); setBreedModalVisible(false); }}>
+                    <Text style={styles.breedText}>{item.name}</Text>
+                    <View style={styles.sizeBadge}><Text style={styles.sizeText}>{item.size}</Text></View>
+                </TouchableOpacity>
+            )}
+          />
+      </Modal>
+
+      {showDatePicker && (
+         <DateTimePicker value={birthday || new Date()} mode="date" onChange={(e, d) => { setShowDatePicker(Platform.OS === 'ios'); if(d) setBirthday(d); }} />
+      )}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: COLORS.background },
-    loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, backgroundColor: COLORS.white, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray },
-    headerTitle: { fontSize: 20, fontWeight: 'bold', color: COLORS.primary },
-    scrollContent: { padding: 20, paddingBottom: 40 },
-    photoContainer: { width: 120, height: 120, borderRadius: 12, borderWidth: 2, borderColor: COLORS.lightGray, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', alignSelf: 'center', marginBottom: 24, backgroundColor: COLORS.white, overflow: 'hidden' }, 
-    petImage: {
-      width: '100%',
-      height: '100%',
-    },
-    label: { fontSize: 16, fontWeight: '600', color: COLORS.text, marginBottom: 8, marginTop: 16 },
-    input: { backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.lightGray, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: COLORS.text, justifyContent: 'center' },
-    row: { flexDirection: 'row', justifyContent: 'space-between', gap: 16 },
-    column: { flex: 1 },
-    segmentedControlContainer: { flexDirection: 'row', backgroundColor: COLORS.lightGray, borderRadius: 12, padding: 4 },
-    segment: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
-    segmentActive: { backgroundColor: COLORS.white },
-    segmentText: { fontWeight: '600', color: '#888' },
-    segmentTextActive: { color: COLORS.primary },
-    resultCard: { backgroundColor: COLORS.white, borderRadius: 12, padding: 20, alignItems: 'center', marginTop: 24 },
-    resultLabel: { fontSize: 16, fontWeight: '600', color: '#666' },
-    resultValue: { fontSize: 48, fontWeight: 'bold', color: COLORS.primary, marginVertical: 8 },
-    resultSubtext: { fontSize: 12, color: '#aaa', textAlign: 'center' },
-    saveButton: { backgroundColor: COLORS.accent, borderRadius: 12, paddingVertical: 16, alignItems: 'center', marginTop: 32 },
-    saveButtonText: { fontSize: 16, fontWeight: 'bold', color: COLORS.text },
-    deleteButton: { paddingVertical: 16, alignItems: 'center', marginTop: 16 },
-    deleteButtonText: { fontSize: 16, fontWeight: 'bold', color: COLORS.danger },
-    pickerContainer: {
-        backgroundColor: COLORS.white,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: COLORS.lightGray,
-        overflow: 'hidden',
-    },
-    picker: {
-        width: '100%',
-        height: 60,
-    },
-    disabledInput: {
-        backgroundColor: '#eee',
-        color: '#888',
-        marginTop: 8
-    },
-    button: {
-        paddingVertical: 14,
-        borderRadius: 10,
-        alignItems: 'center',
-        flexDirection: 'row',
-        justifyContent: 'center',
-    },
-    scanButton: {
-        backgroundColor: COLORS.accent, 
-        marginTop: 10,
-    },
-    scanningButton: {
-        backgroundColor: '#888',
-        marginTop: 10,
-    },
-    datePlaceholder: {
-      fontSize: 16,
-      color: '#999'
-    },
-    dateText: {
-      fontSize: 16,
-      color: COLORS.text
-    },
-    infoContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: 6,
-    },
-    helperText: {
-        fontSize: 12,
-        color: '#666',
-        marginLeft: 4,
-        fontStyle: 'italic'
-    },
-    dietContainer: {
-        marginTop: 16,
-        paddingTop: 16,
-        borderTopWidth: 1,
-        borderTopColor: COLORS.lightGray,
-        width: '100%',
-        alignItems: 'center',
-    },
-    dietHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 8,
-        gap: 6,
-    },
-    dietTitle: {
-        fontSize: 14,
-        fontWeight: 'bold',
-        color: COLORS.warning,
-    },
-    dietText: {
-        fontSize: 13,
-        color: '#666',
-        textAlign: 'center',
-        marginBottom: 4,
-    },
-    dietValue: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: COLORS.primary,
-        marginTop: 4,
-    },
-    breedSelectButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        backgroundColor: COLORS.white,
-        borderWidth: 1,
-        borderColor: COLORS.lightGray,
-        borderRadius: 12,
-        paddingHorizontal: 16,
-        paddingVertical: 14,
-    },
-    breedSelectText: {
-        fontSize: 16,
-        color: COLORS.text,
-        fontWeight: '500',
-    },
-    modalContainer: {
-        flex: 1,
-        backgroundColor: COLORS.background,
-    },
-    modalHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 20,
-        paddingVertical: 16,
-        backgroundColor: COLORS.white,
-        borderBottomWidth: 1,
-        borderBottomColor: COLORS.lightGray,
-    },
-    modalTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: COLORS.primary,
-    },
-    searchContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.white,
-        margin: 16,
-        paddingHorizontal: 12,
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: COLORS.lightGray,
-        height: 48,
-    },
-    searchInput: {
-        flex: 1,
-        marginLeft: 8,
-        fontSize: 16,
-        color: COLORS.text,
-    },
-    breedItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        backgroundColor: COLORS.white,
-        paddingVertical: 16,
-        paddingHorizontal: 16,
-        borderRadius: 10,
-        marginBottom: 10,
-        borderWidth: 1,
-        borderColor: COLORS.lightGray,
-    },
-    breedItemText: {
-        fontSize: 16,
-        color: COLORS.text,
-        fontWeight: '500',
-    },
-    sizeBadge: {
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 6,
-    },
-    sizeBadgeText: {
-        fontSize: 12,
-        fontWeight: 'bold',
-    },
-    emptyText: {
-        textAlign: 'center',
-        marginTop: 40,
-        color: COLORS.mediumGray,
-        fontSize: 16,
-    },
+  container: { flex: 1, backgroundColor: COLORS.background },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, alignItems: 'center' },
+  backBtn: { padding: 4 },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: COLORS.text },
+  saveBtn: { backgroundColor: COLORS.primary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+  saveBtnText: { color: '#FFF', fontWeight: '600' },
+  content: { padding: 24 },
+  
+  avatarSection: { alignItems: 'center', marginBottom: 24 },
+  avatarCircle: { width: 120, height: 120, borderRadius: 60, backgroundColor: '#FFF', justifyContent: 'center', alignItems: 'center', borderWidth: 4, overflow: 'hidden' },
+  avatarImg: { width: '100%', height: '100%' },
+  bowlIndicator: { position: 'absolute', bottom: 0, right: 0, width: 32, height: 32, borderRadius: 16, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#FFF' },
+  bowlIndicatorText: { color: '#FFF', fontWeight: 'bold' },
+
+  section: { marginBottom: 24 },
+  label: { fontSize: 13, fontWeight: '700', color: COLORS.subText, textTransform: 'uppercase', marginBottom: 8, letterSpacing: 0.5 },
+  
+  dropdownBtn: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: COLORS.card, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
+  dropdownText: { fontSize: 16, color: COLORS.text },
+
+  inputRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.card, paddingHorizontal: 16, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, height: 50, marginBottom: 12 },
+  input: { flex: 1, marginLeft: 12, fontSize: 16, color: COLORS.text, height: '100%' },
+  inputText: { marginLeft: 12, fontSize: 16, color: COLORS.text },
+  splitRow: { flexDirection: 'row' },
+  column: { flex: 1 },
+  helperText: { fontSize: 12, color: COLORS.subText, marginLeft: 4, fontStyle: 'italic' },
+  
+  // New Info Row Styles
+  infoRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4, marginLeft: 4 },
+  warningText: { fontSize: 11, color: COLORS.warning, marginLeft: 4, fontWeight: '600' },
+
+  segContainer: { flexDirection: 'row', backgroundColor: '#E0E0E0', borderRadius: 10, padding: 4, marginBottom: 12 },
+  segBtn: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 8 },
+  segBtnActive: { backgroundColor: '#FFF', shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 2 },
+  segText: { fontWeight: '600', color: COLORS.subText },
+  segTextActive: { color: COLORS.primary },
+
+  bowlRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
+  bowlCard: { flex: 1, backgroundColor: COLORS.card, padding: 16, borderRadius: 16, alignItems: 'center', borderWidth: 2, borderColor: 'transparent' },
+  bowlTitle: { fontSize: 16, fontWeight: '700', color: COLORS.subText, marginTop: 8 },
+  bowlSub: { fontSize: 11, color: '#AAA', marginTop: 4 },
+
+  rfidCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', padding: 16, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border },
+  rfidScanning: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  rfidTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text },
+  rfidSub: { fontSize: 13, color: COLORS.subText },
+
+  resultCard: { backgroundColor: COLORS.card, padding: 24, borderRadius: 20, alignItems: 'center', marginBottom: 24, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10, elevation: 2 },
+  resultTitle: { fontSize: 14, fontWeight: '700', color: COLORS.subText, textTransform: 'uppercase' },
+  resultValue: { fontSize: 48, fontWeight: '800', color: COLORS.primary, marginVertical: 8 },
+
+  // Diet Insight Styles
+  dietContainer: { marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#EEE', width: '100%', alignItems: 'center' },
+  dietHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  dietTitle: { fontSize: 14, fontWeight: '700', color: COLORS.warning, marginLeft: 6 },
+  dietText: { fontSize: 13, color: COLORS.subText, textAlign: 'center', lineHeight: 18 },
+  dietValue: { fontSize: 20, fontWeight: '800', color: COLORS.primary, marginTop: 4 },
+
+  deleteBtn: { alignItems: 'center', padding: 16 },
+  deleteText: { color: COLORS.danger, fontWeight: '700', fontSize: 16 },
+
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, alignItems: 'center' },
+  modalTitle: { fontSize: 18, fontWeight: '700' },
+  searchBar: { flexDirection: 'row', backgroundColor: '#F0F0F0', margin: 16, marginTop: 0, padding: 10, borderRadius: 10, alignItems: 'center' },
+  breedItem: { flexDirection: 'row', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1, borderColor: '#EEE' },
+  breedText: { fontSize: 16, color: COLORS.text },
+  sizeBadge: { backgroundColor: '#F0F0F0', paddingHorizontal: 8, borderRadius: 4 },
+  sizeText: { fontSize: 12, color: '#666' }
 });

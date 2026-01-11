@@ -43,7 +43,6 @@ const CARD_WIDTH = width - 40;
 // Match this to the MAX_WEIGHT_GRAMS in your Arduino Code
 const MAX_CAPACITY = 1000; 
 
-// ... [Keep interfaces: Pet, Schedule, Feeder, BowlStatus, BowlCardProps] ...
 interface Pet {
   id: string;
   name: string;
@@ -86,112 +85,110 @@ interface BowlCardProps {
 
 // ... [Modified BowlCard Component] ...
 const BowlCard: React.FC<BowlCardProps> = ({ 
-    bowlNumber, 
-    selectedPet, 
-    foodLevel, // This is now coming in as grams (e.g., 500, 1000)
-    perMealPortion, 
-    onPressFeed, 
-    streamUri, 
-    isActive,
-    isFeederOnline,
-    bowlStatus
+  bowlNumber, 
+  selectedPet, 
+  foodLevel, // This is now coming in as grams (e.g., 500, 1000)
+  perMealPortion, 
+  onPressFeed, 
+  streamUri, 
+  isActive,
+  isFeederOnline,
+  bowlStatus
 }) => {
-    const isUnassigned = !selectedPet;
-    const isFeedDisabled = isUnassigned || !isFeederOnline;
+  const isUnassigned = !selectedPet;
+  const isFeedDisabled = isUnassigned || !isFeederOnline;
 
-    // Calculate percentage for the visual progress bar width only
-    // (Current Weight / Max Capacity) * 100
-    const progressPercent = Math.min(100, Math.max(0, (foodLevel / MAX_CAPACITY) * 100));
+  // Calculate percentage for the visual progress bar width only
+  // (Current Weight / Max Capacity) * 100
+  const progressPercent = Math.min(100, Math.max(0, (foodLevel / MAX_CAPACITY) * 100));
 
-    useEffect(() => {
-        const setAudio = async () => {
-            await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-        };
-        setAudio();
-    }, []);
-
-    const handleError = (error: any) => {
-        if (isActive) {
-          console.error(`[VLC Player Bowl ${bowlNumber}] Playback Error:`, error);
-        }
+  useEffect(() => {
+    const setAudio = async () => {
+      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
     };
+    setAudio();
+  }, []);
 
-    return (
-      <View style={[styles.card, { width: CARD_WIDTH }]}>
-        <View style={styles.cardHeader}>
-          <View style={styles.cardTitleContainer}>
-              <Text style={[styles.cardTitle, isUnassigned && { color: '#999' }]}>
-                {`Bowl ${bowlNumber} - ${selectedPet?.name || 'No Pet Assigned'}`}
-              </Text>
-          </View>
-          <View style={[styles.onlineIndicator, { backgroundColor: isFeederOnline ? '#4CAF50' : COLORS.offline }]} />
+  const handleError = (error: any) => {
+    if (isActive) {
+      console.error(`[VLC Player Bowl ${bowlNumber}] Playback Error:`, error);
+    }
+  };
+
+  return (
+    <View style={[styles.card, { width: CARD_WIDTH }]}>
+      <View style={styles.cardHeader}>
+        <View style={styles.cardTitleContainer}>
+            <Text style={[styles.cardTitle, isUnassigned && { color: '#999' }]}>
+              {`Bowl ${bowlNumber} - ${selectedPet?.name || 'No Pet Assigned'}`}
+            </Text>
         </View>
-
-        <View style={styles.videoFeedPlaceholder}>
-          {streamUri ? (
-            <>
-              {isActive && (
-                <VLCPlayer
-                  style={styles.video}
-                  source={{ uri: streamUri }}
-                  resizeMode="cover"
-                  muted={true}
-                  paused={false}
-                  onError={handleError}
-                  videoAspectRatio={`${16}:${9}`}
-                />
-              )}
-            </>
-          ) : (
-            <View style={styles.videoOverlay}>
-                <MaterialCommunityIcons name="camera-off-outline" size={32} color="#999" />
-                <Text style={styles.videoFeedText}>Live Feed Unavailable</Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.statusContainer}>
-          <Text style={styles.statusLabel}>Food Level (Grams)</Text>
-          <View style={styles.progressBarBackground}>
-            {/* Use the calculated percentage for width */}
-            <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
-          </View>
-          {/* Display the actual grams */}
-          <Text style={styles.statusPercentage}>{foodLevel}g / {MAX_CAPACITY}g</Text>
-        </View>
-
-        <TouchableOpacity 
-          style={[styles.feedButton, isFeedDisabled && styles.disabledButton]} 
-          onPress={onPressFeed} 
-          disabled={isFeedDisabled}
-        >
-          <Text style={styles.feedButtonText}>
-            {isFeederOnline 
-                ? (bowlStatus?.isWaiting 
-                    ? `Feed Pending Meal (${bowlStatus.amount}g)` 
-                    : (isUnassigned ? 'No Pet Assigned' : 'Feed Now')) 
-                : 'Feeder Offline'}
-          </Text>
-        </TouchableOpacity>
-
-        <Text style={styles.portionText}>
-          {`Next scheduled meal: ${perMealPortion > 0 ? perMealPortion : '--'}g`}
-        </Text>
+        <View style={[styles.onlineIndicator, { backgroundColor: isFeederOnline ? '#4CAF50' : COLORS.offline }]} />
       </View>
-    );
+
+      <View style={styles.videoFeedPlaceholder}>
+        {streamUri ? (
+          <>
+            {isActive && (
+              <VLCPlayer
+                style={styles.video}
+                source={{ uri: streamUri }}
+                resizeMode="cover"
+                muted={true}
+                paused={false}
+                onError={handleError}
+                videoAspectRatio={`${16}:${9}`}
+              />
+            )}
+          </>
+        ) : (
+          <View style={styles.videoOverlay}>
+              <MaterialCommunityIcons name="camera-off-outline" size={32} color="#999" />
+              <Text style={styles.videoFeedText}>Live Feed Unavailable</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.statusContainer}>
+        <Text style={styles.statusLabel}>Food Level (Grams)</Text>
+        <View style={styles.progressBarBackground}>
+          {/* Use the calculated percentage for width */}
+          <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+        </View>
+        {/* Display the actual grams */}
+        <Text style={styles.statusPercentage}>{foodLevel}g / {MAX_CAPACITY}g</Text>
+      </View>
+
+      <TouchableOpacity 
+        style={[styles.feedButton, isFeedDisabled && styles.disabledButton]} 
+        onPress={onPressFeed} 
+        disabled={isFeedDisabled}
+      >
+        <Text style={styles.feedButtonText}>
+          {isFeederOnline 
+            ? (isUnassigned ? 'No Pet Assigned' : 'Feed Now') 
+            : 'Feeder Offline'}
+        </Text>
+      </TouchableOpacity>
+
+      <Text style={styles.portionText}>
+        {`Next scheduled meal: ${perMealPortion > 0 ? perMealPortion : '--'}g`}
+      </Text>
+    </View>
+  );
 };
 
 const formatScheduleTime = (timeString: string): string => {
-    if (!timeString) return 'Invalid Time';
-    const [hours, minutes] = timeString.split(':').map(Number);
-    if (isNaN(hours) || isNaN(minutes)) return 'Invalid Time';
+  if (!timeString) return 'Invalid Time';
+  const [hours, minutes] = timeString.split(':').map(Number);
+  if (isNaN(hours) || isNaN(minutes)) return 'Invalid Time';
 
-    const date = new Date();
-    date.setHours(hours, minutes);
+  const date = new Date();
+  date.setHours(hours, minutes);
 
-    return date.toLocaleTimeString('en-US', {
-        hour: '2-digit', minute: '2-digit', hour12: true
-    });
+  return date.toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit', hour12: true
+  });
 };
 
 export default function DashboardScreen() {
@@ -471,23 +468,7 @@ export default function DashboardScreen() {
          return;
     }
 
-    const status = bowlStatuses[bowlNumber];
-    if (status?.isWaiting && status.amount) {
-        const petName = pets.find(p => p.id === status.petId)?.name || 'your pet';
-        
-        Alert.alert(
-            "Pending Meal",
-            `This bowl is waiting for ${petName}. Do you want to feed the scheduled ${status.amount}g now?`,
-            [
-                { text: "Cancel", style: "cancel" },
-                { 
-                    text: "Feed Scheduled Amount", 
-                    onPress: () => handleDispenseFeed(status.amount!, bowlNumber)
-                }
-            ]
-        );
-        return;
-    }
+    // REMOVED PENDING MEAL INTERCEPTION LOGIC HERE
 
     setSelectedBowlForAction(bowlNumber);
     setIsCustomFeedVisible(false);
@@ -616,14 +597,13 @@ export default function DashboardScreen() {
             <TouchableOpacity style={styles.menuItem} onPress={handleAccountPress}><MaterialCommunityIcons name="account-circle-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Account</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => { handleMenuClose(); router.push('/(provisioning)'); }}><MaterialCommunityIcons name="plus-box-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Add Device</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={handleResetMenuPress}><MaterialCommunityIcons name="restart" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Reset Device</Text></TouchableOpacity>
-            {/* UPDATED MANUAL LINK */}
             <TouchableOpacity style={styles.menuItem} onPress={handleManualPress}><MaterialCommunityIcons name="book-open-outline" size={24} color={COLORS.text} style={styles.menuIcon} /><Text style={styles.menuItemText}>Manual</Text></TouchableOpacity>
             <TouchableOpacity style={styles.menuLogoutButton} onPress={handleLogout}><MaterialCommunityIcons name="logout" size={24} color={COLORS.danger} style={styles.menuIcon} /><Text style={styles.menuLogoutText}>Logout</Text></TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Modal>
 
-      {/* Reset Device Selection Modal - KEPT AS IS */}
+      {/* Reset Device Selection Modal */}
       <Modal animationType="fade" transparent={true} visible={isResetSelectionVisible} onRequestClose={() => setIsResetSelectionVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} onPress={() => setIsResetSelectionVisible(false)} activeOpacity={1}>
           <View style={styles.menuContainer}>
@@ -652,7 +632,7 @@ export default function DashboardScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Feed Now Modal - KEPT AS IS */}
+      {/* Feed Now Modal */}
       <Modal visible={isFeedModalVisible} transparent={true} animationType="fade" onRequestClose={() => setIsFeedModalVisible(false)}>
         <TouchableOpacity style={styles.modalOverlay} onPress={() => setIsFeedModalVisible(false)} activeOpacity={1}>
             <TouchableOpacity activeOpacity={1} style={styles.selectionModalContent}>
@@ -736,16 +716,11 @@ const styles = StyleSheet.create({
   modalSubtitle: { fontSize: 16, color: COLORS.text, marginBottom: 24, textAlign: 'center' },
   modalButton: { backgroundColor: COLORS.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', width: '100%', marginBottom: 12 },
   modalButtonText: { fontSize: 16, fontWeight: 'bold', color: COLORS.white },
-  modalDivider: { color: '#aaa', fontWeight: 'bold', marginVertical: 8 },
-  modalInput: { width: '100%', backgroundColor: COLORS.background, borderWidth: 1, borderColor: COLORS.lightGray, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: COLORS.text, textAlign: 'center', marginVertical: 12 },
-  customFeedToggle: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.lightGray, marginVertical: 12 },
-  customFeedToggleText: { fontSize: 16, fontWeight: '600', color: COLORS.text },
-  customFeedContainer: { width: '100%', alignItems: 'center' },
-  cancelButton: { backgroundColor: 'transparent', marginTop: 10, alignSelf: 'center', padding: 10 },
-  cancelButtonText: { color: COLORS.danger, fontWeight: '600', fontSize: 16 },
-  unassignButton: { backgroundColor: COLORS.danger, borderWidth: 0},
-  selectionModalContent: { backgroundColor: COLORS.white, borderRadius: 12, padding: 20, width: '85%', maxHeight: '60%' },
-  selectionItem: { paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray },
-  selectionItemText: { fontSize: 18, color: COLORS.text, textAlign: 'center' },
-  emptyListText: { textAlign: 'center', color: '#999', marginVertical: 20 },
+  modalInput: { width: '100%', height: 50, borderWidth: 1, borderColor: COLORS.lightGray, borderRadius: 12, paddingHorizontal: 16, marginBottom: 16, fontSize: 16, color: COLORS.text },
+  selectionModalContent: { width: '90%', backgroundColor: COLORS.white, borderRadius: 20, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
+  customFeedToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 10, paddingVertical: 8 },
+  customFeedToggleText: { fontSize: 16, color: COLORS.text, marginRight: 5, fontWeight: '500' },
+  customFeedContainer: { width: '100%', marginTop: 15, paddingTop: 15, borderTopWidth: 1, borderTopColor: COLORS.lightGray },
+  cancelButton: { marginTop: 10, paddingVertical: 10, alignItems: 'center' },
+  cancelButtonText: { fontSize: 16, color: '#999', fontWeight: '500' },
 });

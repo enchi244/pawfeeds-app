@@ -549,6 +549,110 @@ export const checkPetMilestones = onSchedule(
 // ==========================================================
 
 /**
+ * Realtime Database trigger that fires when the feeder reports an EMPTY or JAM error.
+ */
+export const onFeederError = onValueCreated(
+  {
+    ref: "/feeder_errors/{feederId}/{eventKey}",
+    region: "asia-southeast1",
+  },
+  async (event: DatabaseEvent<DataSnapshot>) => {
+    const feederId = event.params.feederId;
+    const errorEvent = event.data.val();
+    const { bowl } = errorEvent; 
+
+    logger.info(`Feeder error detected for feeder ${feederId}:`, errorEvent);
+
+    // 1. Get ownerUid to know who to notify
+    const feederDoc = await firestore.collection("feeders").doc(feederId).get();
+    const ownerUid = feederDoc.data()?.owner_uid;
+
+    if (!ownerUid) {
+      logger.error(`Owner not found for feeder ${feederId}. Cannot send notification.`);
+      await event.data.ref.remove();
+      return;
+    }
+
+    // 2. Send the Critical Alert Notification
+    const title = "⚠️ Feeder Jammed or Empty";
+    const body = `Bowl ${bowl} could not dispense food. The container might be empty or jammed. Please check it immediately.`;
+
+    const data = {
+      screen: "home",
+      action: "feeder_error",
+      bowl: String(bowl)
+    };
+
+    await sendGenericPushNotification(ownerUid, title, body, data)
+      .catch(err => logger.error(`Failed to send error notification for ${ownerUid}`, err));
+
+    // 3. Delete the RTDB record to clean up and prevent re-triggering
+    await event.data.ref.remove();
+    logger.info(`Feeder error notification sent and record cleaned for ${feederId}.`);
+  }
+);
+
+// ==========================================================
+// --- [NEW] Hunger Alert Handler ---
+// ==========================================================
+
+/**
+ * Realtime Database trigger that fires when the feeder reports 3 unscheduled scans.
+ */
+export const onHungerAlert = onValueCreated(
+  {
+    ref: "/feeder_hunger_alerts/{feederId}/{eventKey}",
+    region: "asia-southeast1",
+  },
+  async (event: DatabaseEvent<DataSnapshot>) => {
+    const feederId = event.params.feederId;
+    const alertData = event.data.val();
+    const { bowl, tagId } = alertData;
+
+    logger.info(`Hunger alert detected for feeder ${feederId}:`, alertData);
+
+    // 1. Get ownerUid 
+    const feederDoc = await firestore.collection("feeders").doc(feederId).get();
+    const ownerUid = feederDoc.data()?.owner_uid;
+
+    if (!ownerUid) {
+      logger.error(`Owner not found for feeder ${feederId}. Cannot send notification.`);
+      await event.data.ref.remove();
+      return;
+    }
+
+    // 2. Try to identify the pet name from the tagId
+    let petName = "A pet";
+    if (tagId) {
+      const petsRef = firestore.collection("feeders").doc(feederId).collection("pets");
+      const q = petsRef.where("rfidTagId", "==", tagId).limit(1);
+      const petSnapshot = await q.get();
+      
+      if (!petSnapshot.empty) {
+        petName = petSnapshot.docs[0].data().name || "A pet";
+      }
+    }
+
+    // 3. Send the Hunger Notification
+    const title = `🐶 ${petName} might be hungry!`;
+    const body = `${petName} has scanned Bowl ${bowl} multiple times without an active schedule.`;
+
+    const data = {
+      screen: "home",
+      action: "hunger_alert",
+      bowl: String(bowl)
+    };
+
+    await sendGenericPushNotification(ownerUid, title, body, data)
+      .catch(err => logger.error(`Failed to send hunger notification for ${ownerUid}`, err));
+
+    // 4. Delete the RTDB record to clean up and prevent re-triggering
+    await event.data.ref.remove();
+    logger.info(`Hunger alert notification sent and record cleaned for ${feederId}.`);
+  }
+);
+
+/**
  * Firestore trigger that fires when a feeder document is updated.
  */
 export const onFeederStatusUpdate = onDocumentUpdated(
