@@ -658,86 +658,26 @@ export const onHungerAlert = onValueCreated(
 export const onFeederStatusUpdate = onDocumentUpdated(
   { document: "feeders/{feederId}", region: "asia-southeast1" },
   async (event) => { 
-    if (!event.data) {
-      logger.info("No data in event, exiting.");
-      return;
-    }
+    // This function acts as a placeholder now since we removed the notifications.
+    // We keep the basic checks so the code remains valid and ready for future features.
+
+    if (!event.data) return;
 
     const beforeData = event.data.before.data();
     const afterData = event.data.after.data();
 
-    if (!beforeData || !afterData) {
-      logger.info("Missing before or after data, exiting.");
-      return;
-    }
+    if (!beforeData || !afterData) return;
 
     const beforeFoodLevels = beforeData.foodLevels;
     const afterFoodLevels = afterData.foodLevels;
-    const ownerUid = afterData.owner_uid;
-
-    if (!afterFoodLevels || !ownerUid) {
-      logger.warn("Feeder data missing foodLevels or owner_uid.", { uid: ownerUid, levels: afterFoodLevels });
-      return;
+    
+    // Just logging for debugging purposes
+    if (JSON.stringify(beforeFoodLevels) !== JSON.stringify(afterFoodLevels)) {
+       logger.info(`Food levels updated for ${event.params.feederId}`, afterFoodLevels);
     }
 
-    if (JSON.stringify(beforeFoodLevels) === JSON.stringify(afterFoodLevels)) {
-      logger.info("foodLevels did not change. Exiting.");
-      return;
-    }
-
-    const LOW_FOOD_THRESHOLD = 20;
-    const NOTIFICATION_COOLDOWN_MINUTES = 60; 
-
-    const promises: Promise<any>[] = [];
-    let updatesToFeederDoc: { [key: string]: any } = {}; 
-
-    for (const bowl in afterFoodLevels) {
-      const beforeLevel = beforeFoodLevels[bowl] ?? 100;
-      const afterLevel = afterFoodLevels[bowl];
-
-      // --- 1. LOW FOOD LOGIC ---
-      if (beforeLevel > LOW_FOOD_THRESHOLD && afterLevel <= LOW_FOOD_THRESHOLD) {
-        logger.info(`LOW FOOD DETECTED: Feeder ${event.params.feederId}, Bowl ${bowl} is at ${afterLevel}%. Notifying owner ${ownerUid}.`);
-
-        // --- Cooldown Check ---
-        const lastNotified = afterData.lowFoodNotifiedAt?.[bowl]?.toMillis() ?? 0;
-        const now = Timestamp.now().toMillis();
-        const minutesSinceLastNotified = (now - lastNotified) / (1000 * 60);
-
-        if (minutesSinceLastNotified > NOTIFICATION_COOLDOWN_MINUTES) {
-          logger.info(`Cooldown passed. Sending notification for Bowl ${bowl}.`);
-          
-          promises.push(
-            sendLowFoodNotification(ownerUid, parseInt(bowl, 10), afterLevel)
-              .catch(err => logger.error(`Failed to send low food push notification for ${ownerUid}`, err))
-          );
-
-          updatesToFeederDoc[`lowFoodNotifiedAt.${bowl}`] = Timestamp.now();
-        } else {
-          logger.info(`Cooldown active for Feeder ${event.params.feederId}, Bowl ${bowl}. Not sending notification.`);
-        }
-      } 
-      
-      // ==========================================================
-      // --- 2. REFILL LOGIC ---
-      // ==========================================================
-      else if (beforeLevel <= LOW_FOOD_THRESHOLD && afterLevel > LOW_FOOD_THRESHOLD) {
-        logger.info(`REFILL DETECTED: Feeder ${event.params.feederId}, Bowl ${bowl} is at ${afterLevel}%. Resetting notification cooldown.`);
-
-        if (afterData.lowFoodNotifiedAt?.[bowl]) {
-          updatesToFeederDoc[`lowFoodNotifiedAt.${bowl}`] = FieldValue.delete();
-        }
-      }
-    }
-
-    if (Object.keys(updatesToFeederDoc).length > 0) {
-      promises.push(
-        event.data.after.ref.update(updatesToFeederDoc)
-          .catch((err: unknown) => logger.error(`Failed to update cooldown timestamps for ${ownerUid}`, err))
-      );
-    }
-
-    await Promise.all(promises);
+    // --- NOTIFICATION LOGIC REMOVED HERE --- 
+    return;
   }
 );
 
@@ -802,14 +742,3 @@ async function sendGenericPushNotification(uid: string, title: string, body: str
   }
 }
 
-/**
- * Helper function to send a LOW FOOD push notification to a user.
- */
-async function sendLowFoodNotification(uid: string, bowl: number, level: number) {
-  const title = "⚠️ Low Food Alert!";
-  const body = level > 0 ?
-    `Food container for Bowl ${bowl} is running low (at ${level}%)!` :
-    `Food container for Bowl ${bowl} is empty!`;
-  const data = { screen: "home" };
-  await sendGenericPushNotification(uid, title, body, data);
-}

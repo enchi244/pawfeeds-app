@@ -6,6 +6,7 @@ interface Schedule {
   isEnabled: boolean;
   repeatDays?: string[];
   skippedDays?: string[];
+  customAddon?: number; // Added support for custom addon
   [key: string]: any;
 }
 
@@ -46,6 +47,7 @@ export const recalculatePortionsForPet = async (
       isEnabled: d.data().isEnabled !== false,
       repeatDays: d.data().repeatDays || [],
       skippedDays: d.data().skippedDays || [],
+      customAddon: d.data().customAddon || 0, // Ensure we read the addon
       ...d.data()
     })) as Schedule[];
 
@@ -56,7 +58,6 @@ export const recalculatePortionsForPet = async (
     }
 
     // --- STEP 4: Calculate Meal Counts Per Day ---
-    // This determines how many times the pet eats on "Monday", "Tuesday", etc.
     const dayCounts: Record<string, number> = {
       'M': 0, 'T': 0, 'W': 0, 'R': 0, 'F': 0, 'S': 0, 'U': 0
     };
@@ -65,7 +66,6 @@ export const recalculatePortionsForPet = async (
 
     activeSchedules.forEach(schedule => {
         const repeats = schedule.repeatDays || [];
-        // Handle pending updates for skippedDays
         const skips = (pendingUpdate && schedule.id === pendingUpdate.id && pendingUpdate.changes.skippedDays) 
             ? pendingUpdate.changes.skippedDays 
             : (schedule.skippedDays || []);
@@ -77,36 +77,35 @@ export const recalculatePortionsForPet = async (
         });
     });
 
-    // --- STEP 5: Calculate Ideal Portion Per Day ---
-    // e.g., Mon (1 meal) = 158g. Wed (2 meals) = 79g.
+    // --- STEP 5: Calculate Ideal Base Portion Per Day ---
     const dayIdealPortions: Record<string, number> = {};
     DAY_CODES.forEach(day => {
         const count = dayCounts[day];
         dayIdealPortions[day] = count > 0 ? (dailyPortion || 0) / count : 0;
     });
 
-    console.log(`[PortionLogic] Daily Ideals:`, dayIdealPortions);
-
-    // --- STEP 6: Detect Conflicts & Split Schedules ---
+    // --- STEP 6: Detect Conflicts, Split, & Apply Add-ons ---
     const batch = writeBatch(db);
 
     for (const schedule of schedules) {
       const originalRef = doc(db, 'feeders', feederId, 'schedules', schedule.id);
       
-      // Merge pending changes for logic checks
+      // Merge pending changes
       const skips = (pendingUpdate && schedule.id === pendingUpdate.id && pendingUpdate.changes.skippedDays) 
           ? pendingUpdate.changes.skippedDays 
           : (schedule.skippedDays || []);
       const repeats = (pendingUpdate && schedule.id === pendingUpdate.id && pendingUpdate.changes.repeatDays)
           ? pendingUpdate.changes.repeatDays
           : (schedule.repeatDays || []);
+      
+      // Capture the custom addon for this schedule
+      const addon = schedule.customAddon || 0;
 
       if (!schedule.isEnabled) {
           batch.update(originalRef, { portionGrams: 0 });
           continue;
       }
 
-      // Find active days for this schedule
       const activeDays = (repeats as string[]).filter(day => !skips.includes(day));
 
       if (activeDays.length === 0) {
@@ -114,57 +113,58 @@ export const recalculatePortionsForPet = async (
           continue;
       }
 
-      // Group days by their Ideal Portion
-      // Example: A Mon/Wed/Fri schedule might result in:
-      // { "158": ["M", "F"], "79": ["W"] }
+      // Group days by their Ideal Base Portion
       const portionGroups: Record<number, string[]> = {};
       
       activeDays.forEach(day => {
-          const portion = Math.round(dayIdealPortions[day]); // Round to avoid float errors
+          const portion = Math.round(dayIdealPortions[day]);
           if (!portionGroups[portion]) portionGroups[portion] = [];
           portionGroups[portion].push(day);
       });
 
       const uniquePortions = Object.keys(portionGroups).map(Number);
 
-      // CASE A: Perfect Match (All days need the same amount)
+      // CASE A: Perfect Match
       if (uniquePortions.length === 1) {
-          const portion = uniquePortions[0];
-          const updates: any = { portionGrams: portion };
+          const basePortion = uniquePortions[0];
+          // APPLY ADDON HERE
+          const finalGrams = basePortion + addon;
+
+          const updates: any = { portionGrams: finalGrams };
           if (pendingUpdate && schedule.id === pendingUpdate.id) {
              Object.assign(updates, pendingUpdate.changes);
           }
           batch.update(originalRef, updates);
       } 
-      // CASE B: Conflict Detected (Days need different amounts) -> SPLIT IT
+      // CASE B: Conflict Detected -> SPLIT IT
       else if (uniquePortions.length > 1) {
-          console.log(`[PortionLogic] Auto-splitting schedule ${schedule.name} due to portion mismatch.`);
+          console.log(`[PortionLogic] Auto-splitting schedule due to portion mismatch.`);
           
-          // Sort groups by size (keep the largest group in the original ID to minimize deletions)
           uniquePortions.sort((a, b) => portionGroups[b].length - portionGroups[a].length);
           
-          const primaryPortion = uniquePortions[0];
-          const primaryDays = portionGroups[primaryPortion];
+          const primaryBase = uniquePortions[0];
+          const primaryDays = portionGroups[primaryBase];
 
-          // 1. Update ORIGINAL schedule to keep only Primary Days (e.g., Mon, Fri)
+          // 1. Update ORIGINAL schedule
           batch.update(originalRef, {
               repeatDays: primaryDays,
-              skippedDays: [], // Reset skips as we are defining exact days now
-              portionGrams: primaryPortion
+              skippedDays: [],
+              portionGrams: primaryBase + addon // Apply addon to primary
           });
 
-          // 2. Create NEW schedules for the other groups (e.g., Wed)
+          // 2. Create NEW schedules for the other groups
           for (let i = 1; i < uniquePortions.length; i++) {
-              const portion = uniquePortions[i];
-              const days = portionGroups[portion];
+              const base = uniquePortions[i];
+              const days = portionGroups[base];
               
               const newScheduleRef = doc(collection(db, 'feeders', feederId, 'schedules'));
               batch.set(newScheduleRef, {
-                  ...schedule, // Copy all properties (name, time, petId...)
+                  ...schedule,
                   id: newScheduleRef.id,
                   repeatDays: days,
                   skippedDays: [],
-                  portionGrams: portion,
+                  portionGrams: base + addon, // Apply addon to new split
+                  customAddon: addon, // Preserve the addon setting
                   isEnabled: true
               });
           }

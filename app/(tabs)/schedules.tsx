@@ -1,6 +1,6 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { collection, doc, getDocs, onSnapshot, query, Unsubscribe, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDocs, onSnapshot, query, Unsubscribe, updateDoc, where, writeBatch } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,10 +20,10 @@ import { recalculatePortionsForPet } from '../../utils/portionLogic';
 
 // Modern Color Palette
 const COLORS = {
-  primary: '#6D4C41', // Deep Warm Brown
+  primary: '#6D4C41',
   secondary: '#8D6E63',
-  accent: '#FFB300', // Vibrant Amber
-  background: '#FAFAFA', // Soft Off-White
+  accent: '#FFB300',
+  background: '#FAFAFA',
   cardBg: '#FFFFFF',
   text: '#2D2D2D',
   subText: '#757575',
@@ -42,12 +42,12 @@ interface Schedule {
   bowlNumber: number;
   isEnabled: boolean;
   repeatDays: string[];
-  skippedDays?: string[]; 
+  skippedDays?: string[];
   portionGrams?: number;
 }
 
 interface ScheduleRow extends Schedule {
-  dayCode: string; 
+  dayCode: string;
 }
 
 const DAY_MAPPING = [
@@ -61,12 +61,12 @@ const DAY_MAPPING = [
 ];
 
 const formatScheduleTime = (timeString: string): string => {
-    if (!timeString) return '--:--';
-    const [hours, minutes] = timeString.split(':').map(Number);
-    if (isNaN(hours) || isNaN(minutes)) return '--:--';
-    const date = new Date();
-    date.setHours(hours, minutes);
-    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  if (!timeString) return '--:--';
+  const [hours, minutes] = timeString.split(':').map(Number);
+  if (isNaN(hours) || isNaN(minutes)) return '--:--';
+  const date = new Date();
+  date.setHours(hours, minutes);
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 };
 
 export default function SchedulesScreen() {
@@ -82,8 +82,8 @@ export default function SchedulesScreen() {
 
   useEffect(() => {
     if (!user) { setLoading(false); return; }
-    let unsubscribe: Unsubscribe = () => {};
-    
+    let unsubscribe: Unsubscribe = () => { };
+
     const fetch = async () => {
       try {
         const feedersRef = collection(db, 'feeders');
@@ -93,11 +93,11 @@ export default function SchedulesScreen() {
           const currentFeederId = snap.docs[0].id;
           setFeederId(currentFeederId);
           unsubscribe = onSnapshot(collection(db, 'feeders', currentFeederId, 'schedules'), (s) => {
-            const data = s.docs.map(d => ({ 
-              id: d.id, 
+            const data = s.docs.map(d => ({
+              id: d.id,
               ...d.data(),
               isEnabled: d.data().isEnabled !== false,
-              skippedDays: d.data().skippedDays || [] 
+              skippedDays: d.data().skippedDays || []
             } as Schedule));
             setSchedules(data);
             setLoading(false);
@@ -113,78 +113,111 @@ export default function SchedulesScreen() {
 
   const petFilters = ['All', ...Array.from(new Set(schedules.map(s => s.petName).filter(Boolean)))];
 
-  const toggleScheduleDay = async (schedule: Schedule, dayCode: string, currentDayState: boolean) => {
-    if (!feederId || !schedule.petId) return;
-    const newDayState = !currentDayState;
-    const currentSkips = schedule.skippedDays || [];
-    let newSkips = newDayState ? currentSkips.filter(d => d !== dayCode) : [...currentSkips, dayCode];
+  // ---------------------------------------------------------
+  // FIXED FUNCTION: toggleScheduleDay
+  // ---------------------------------------------------------
+  const toggleScheduleDay = async (targetId: string, dayCode: string, targetPetId: string) => {
+    if (!feederId || !targetPetId) return;
 
-    const original = [...schedules];
-    setSchedules(prev => prev.map(s => s.id === schedule.id ? { ...s, skippedDays: newSkips, isEnabled: true } : s));
+    // 1. Get LATEST state from the live list
+    const currentSchedule = schedules.find(s => s.id === targetId);
+    if (!currentSchedule) return;
+
+    const currentSkips = currentSchedule.skippedDays || [];
+    const isDayCurrentlyActive = currentSchedule.isEnabled && !currentSkips.includes(dayCode);
+    const newDayState = !isDayCurrentlyActive; // Logic flip
+
+    // 2. Calculate new Skip List
+    let newSkips;
+    if (newDayState) {
+        // Turning ON: Remove from skip list
+        newSkips = currentSkips.filter(d => d !== dayCode);
+    } else {
+        // Turning OFF: Add to skip list (Unique)
+        newSkips = Array.from(new Set([...currentSkips, dayCode]));
+    }
+
+    // 3. Optimistic UI Update (Immediate visual feedback)
+    setSchedules(prev => prev.map(s => 
+        s.id === targetId 
+            ? { ...s, skippedDays: newSkips, isEnabled: true } 
+            : s
+    ));
 
     try {
-        await recalculatePortionsForPet(
-            feederId, schedule.petId, undefined, 
-            { id: schedule.id, changes: { skippedDays: newSkips, isEnabled: true } }
-        );
+      // 4. DIRECT DB UPDATE (The Fix)
+      // We force update the skippedDays first to ensure the switch stays OFF
+      const scheduleRef = doc(db, 'feeders', feederId, 'schedules', targetId);
+      await updateDoc(scheduleRef, {
+          skippedDays: newSkips,
+          isEnabled: true // Ensure master switch is true so individual days work
+      });
+
+      // 5. THEN recalculate portions
+      // This will update the grams in the background
+      await recalculatePortionsForPet(feederId, targetPetId);
+
     } catch (error) {
-        setSchedules(original);
+      console.error("Toggle error:", error);
+      // Revert UI if DB write fails
+      setSchedules(prev => prev.map(s => s.id === targetId ? currentSchedule : s));
+      Alert.alert("Error", "Failed to update schedule.");
     }
   };
 
   const toggleSelection = (id: string, dayCode: string) => {
-      const key = `${id}_${dayCode}`;
-      setSelectedKeys(prev => {
-          const newSet = new Set(prev);
-          if (newSet.has(key)) newSet.delete(key);
-          else newSet.add(key);
-          return newSet;
-      });
+    const key = `${id}_${dayCode}`;
+    setSelectedKeys(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(key)) newSet.delete(key);
+      else newSet.add(key);
+      return newSet;
+    });
   };
 
   const handleBulkDelete = () => {
-      if (selectedKeys.size === 0) return;
-      Alert.alert(
-          "Delete Selected?",
-          `This will remove ${selectedKeys.size} schedule items.`,
-          [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: performBulkDelete }]
-      );
+    if (selectedKeys.size === 0) return;
+    Alert.alert(
+      "Delete Selected?",
+      `This will remove ${selectedKeys.size} schedule items.`,
+      [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: performBulkDelete }]
+    );
   };
 
   const performBulkDelete = async () => {
-      if (!feederId) return;
-      setLoading(true);
-      try {
-          const deletions = new Map<string, string[]>();
-          selectedKeys.forEach(key => {
-              const [id, dayCode] = key.split('_');
-              if (!deletions.has(id)) deletions.set(id, []);
-              deletions.get(id)?.push(dayCode);
-          });
+    if (!feederId) return;
+    setLoading(true);
+    try {
+      const deletions = new Map<string, string[]>();
+      selectedKeys.forEach(key => {
+        const [id, dayCode] = key.split('_');
+        if (!deletions.has(id)) deletions.set(id, []);
+        deletions.get(id)?.push(dayCode);
+      });
 
-          const affectedPetIds = new Set<string>();
-          const batch = writeBatch(db);
+      const affectedPetIds = new Set<string>();
+      const batch = writeBatch(db);
 
-          for (const [id, daysToRemove] of deletions.entries()) {
-              const schedule = schedules.find(s => s.id === id);
-              if (!schedule) continue;
-              affectedPetIds.add(schedule.petId);
-              const newDays = (schedule.repeatDays || []).filter(d => !daysToRemove.includes(d));
-              const ref = doc(db, 'feeders', feederId, 'schedules', id);
+      for (const [id, daysToRemove] of deletions.entries()) {
+        const schedule = schedules.find(s => s.id === id);
+        if (!schedule) continue;
+        affectedPetIds.add(schedule.petId);
+        const newDays = (schedule.repeatDays || []).filter(d => !daysToRemove.includes(d));
+        const ref = doc(db, 'feeders', feederId, 'schedules', id);
 
-              if (newDays.length === 0) batch.delete(ref);
-              else batch.update(ref, { repeatDays: newDays });
-          }
-          await batch.commit();
-          for (const petId of Array.from(affectedPetIds)) await recalculatePortionsForPet(feederId, petId);
-          
-          setSelectionMode(false);
-          setSelectedKeys(new Set());
-      } catch (error) {
-          Alert.alert("Error", "Bulk delete failed.");
-      } finally {
-          setLoading(false);
+        if (newDays.length === 0) batch.delete(ref);
+        else batch.update(ref, { repeatDays: newDays });
       }
+      await batch.commit();
+      for (const petId of Array.from(affectedPetIds)) await recalculatePortionsForPet(feederId, petId);
+
+      setSelectionMode(false);
+      setSelectedKeys(new Set());
+    } catch (error) {
+      Alert.alert("Error", "Bulk delete failed.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const sections = DAY_MAPPING.map(day => {
@@ -195,60 +228,63 @@ export default function SchedulesScreen() {
   }).filter(s => s.data.length > 0);
 
   const renderItem = ({ item }: { item: ScheduleRow }) => {
+    // Logic: Active if schedule is Enabled AND Day is NOT in skipped list
     const isDayActive = item.isEnabled && !(item.skippedDays || []).includes(item.dayCode);
+    
     const selectionKey = `${item.id}_${item.dayCode}`;
     const isSelected = selectedKeys.has(selectionKey);
 
     return (
-      <TouchableOpacity 
+      <TouchableOpacity
         style={[
-            styles.card, 
-            isSelectionMode && styles.cardSelectionMode,
-            isSelectionMode && isSelected && styles.cardSelected
-        ]} 
+          styles.card,
+          isSelectionMode && styles.cardSelectionMode,
+          isSelectionMode && isSelected && styles.cardSelected
+        ]}
         onPress={() => isSelectionMode ? toggleSelection(item.id, item.dayCode) : router.push({ pathname: "/schedule/[id]", params: { id: item.id, clickedDay: item.dayCode } })}
         activeOpacity={0.8}
-        disabled={isSelectionMode && !isSelectionMode} // Keep interactable
+        disabled={isSelectionMode && !isSelectionMode} 
       >
         <View style={styles.cardContent}>
-            {isSelectionMode && (
-                 <View style={styles.selectionCheck}>
-                     <Ionicons name={isSelected ? "checkmark-circle" : "ellipse-outline"} size={24} color={isSelected ? COLORS.selection : "#CCC"} />
-                 </View>
-            )}
-            
-            <View style={styles.timeContainer}>
-                <Text style={[styles.timeText, (!isDayActive && !isSelectionMode) && styles.textDisabled]}>
-                    {formatScheduleTime(item.time)}
-                </Text>
-                <View style={styles.metaRow}>
-                    <Text style={styles.scheduleName}>{item.name}</Text>
-                    {activeFilter === 'All' && (
-                        <>
-                            <Text style={styles.dotSeparator}>•</Text>
-                            <Text style={styles.petName}>{item.petName}</Text>
-                        </>
-                    )}
-                </View>
+          {isSelectionMode && (
+            <View style={styles.selectionCheck}>
+              <Ionicons name={isSelected ? "checkmark-circle" : "ellipse-outline"} size={24} color={isSelected ? COLORS.selection : "#CCC"} />
             </View>
+          )}
 
-            {!isSelectionMode && (
-                <View style={styles.actionContainer}>
-                    <View style={[styles.gramBadge, !isDayActive && styles.gramBadgeDisabled]}>
-                        <Text style={[styles.gramText, !isDayActive && styles.gramTextDisabled]}>
-                            {isDayActive ? `${item.portionGrams || 0}g` : 'OFF'}
-                        </Text>
-                    </View>
-                    <Switch
-                        trackColor={{ false: '#E0E0E0', true: COLORS.accent }}
-                        thumbColor={'#FFF'}
-                        ios_backgroundColor="#E0E0E0"
-                        onValueChange={() => toggleScheduleDay(item, item.dayCode, isDayActive)}
-                        value={isDayActive}
-                        style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
-                    />
-                </View>
-            )}
+          <View style={styles.timeContainer}>
+            <Text style={[styles.timeText, (!isDayActive && !isSelectionMode) && styles.textDisabled]}>
+              {formatScheduleTime(item.time)}
+            </Text>
+            <View style={styles.metaRow}>
+              <Text style={styles.scheduleName}>{item.name}</Text>
+              {activeFilter === 'All' && (
+                <>
+                  <Text style={styles.dotSeparator}>•</Text>
+                  <Text style={styles.petName}>{item.petName}</Text>
+                </>
+              )}
+            </View>
+          </View>
+
+          {!isSelectionMode && (
+            <View style={styles.actionContainer}>
+              <View style={[styles.gramBadge, !isDayActive && styles.gramBadgeDisabled]}>
+                <Text style={[styles.gramText, !isDayActive && styles.gramTextDisabled]}>
+                  {isDayActive ? `${item.portionGrams || 0}g` : 'OFF'}
+                </Text>
+              </View>
+              <Switch
+                trackColor={{ false: '#E0E0E0', true: COLORS.accent }}
+                thumbColor={'#FFF'}
+                ios_backgroundColor="#E0E0E0"
+                // Pass IDs to function to prevent stale closures
+                onValueChange={() => toggleScheduleDay(item.id, item.dayCode, item.petId)}
+                value={isDayActive}
+                style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
+              />
+            </View>
+          )}
         </View>
       </TouchableOpacity>
     );
@@ -260,27 +296,27 @@ export default function SchedulesScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Feeding Schedule</Text>
         <TouchableOpacity style={styles.selectBtn} onPress={() => { setSelectionMode(!isSelectionMode); setSelectedKeys(new Set()); }}>
-            <Text style={styles.selectBtnText}>{isSelectionMode ? 'Done' : 'Select'}</Text>
+          <Text style={styles.selectBtnText}>{isSelectionMode ? 'Done' : 'Select'}</Text>
         </TouchableOpacity>
       </View>
 
       {!isSelectionMode && (
-          <View style={styles.filterContainer}>
-            <SectionList 
-                horizontal 
-                sections={[{title: 'Filters', data: petFilters}]}
-                renderItem={({item}) => (
-                    <TouchableOpacity 
-                        style={[styles.filterPill, activeFilter === item && styles.filterPillActive]} 
-                        onPress={() => setActiveFilter(item)}
-                    >
-                        <Text style={[styles.filterText, activeFilter === item && styles.filterTextActive]}>{item}</Text>
-                    </TouchableOpacity>
-                )}
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingHorizontal: 16 }}
-            />
-          </View>
+        <View style={styles.filterContainer}>
+          <SectionList
+            horizontal
+            sections={[{ title: 'Filters', data: petFilters }]}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={[styles.filterPill, activeFilter === item && styles.filterPillActive]}
+                onPress={() => setActiveFilter(item)}
+              >
+                <Text style={[styles.filterText, activeFilter === item && styles.filterTextActive]}>{item}</Text>
+              </TouchableOpacity>
+            )}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16 }}
+          />
+        </View>
       )}
 
       {loading ? (
@@ -291,17 +327,17 @@ export default function SchedulesScreen() {
           renderItem={renderItem}
           renderSectionHeader={({ section: { title } }) => (
             <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>{title}</Text>
+              <Text style={styles.sectionTitle}>{title}</Text>
             </View>
           )}
           keyExtractor={(item, index) => item.id + item.dayCode + index}
           contentContainerStyle={[styles.listContent, isSelectionMode && { paddingBottom: 100 }]}
-          stickySectionHeadersEnabled={false} // Cleaner look for cards
+          stickySectionHeadersEnabled={false} 
           ListEmptyComponent={
             <View style={styles.emptyState}>
-                <MaterialCommunityIcons name="clock-outline" size={64} color="#DDD" />
-                <Text style={styles.emptyText}>No routines yet</Text>
-                <Text style={styles.emptySub}>Tap + to start planning meals</Text>
+              <MaterialCommunityIcons name="clock-outline" size={64} color="#DDD" />
+              <Text style={styles.emptyText}>No routines yet</Text>
+              <Text style={styles.emptySub}>Tap + to start planning meals</Text>
             </View>
           }
         />
@@ -309,22 +345,22 @@ export default function SchedulesScreen() {
 
       {!isSelectionMode && (
         <TouchableOpacity style={styles.fab} onPress={() => router.push({ pathname: "/schedule/[id]", params: { id: 'new' } })}>
-            <MaterialCommunityIcons name="plus" size={32} color="#FFF" />
+          <MaterialCommunityIcons name="plus" size={32} color="#FFF" />
         </TouchableOpacity>
       )}
 
       {isSelectionMode && (
-          <View style={styles.bulkBar}>
-              <TouchableOpacity 
-                  style={[styles.bulkBtn, selectedKeys.size === 0 && styles.bulkBtnDisabled]} 
-                  onPress={handleBulkDelete}
-                  disabled={selectedKeys.size === 0}
-              >
-                  <Text style={styles.bulkBtnText}>
-                      Delete {selectedKeys.size > 0 ? `(${selectedKeys.size})` : ''}
-                  </Text>
-              </TouchableOpacity>
-          </View>
+        <View style={styles.bulkBar}>
+          <TouchableOpacity
+            style={[styles.bulkBtn, selectedKeys.size === 0 && styles.bulkBtnDisabled]}
+            onPress={handleBulkDelete}
+            disabled={selectedKeys.size === 0}
+          >
+            <Text style={styles.bulkBtnText}>
+              Delete {selectedKeys.size > 0 ? `(${selectedKeys.size})` : ''}
+            </Text>
+          </TouchableOpacity>
+        </View>
       )}
     </SafeAreaView>
   );
@@ -337,7 +373,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 28, fontWeight: '800', color: COLORS.primary, letterSpacing: -0.5 },
   selectBtn: { padding: 8 },
   selectBtnText: { fontSize: 16, fontWeight: '600', color: COLORS.secondary },
-  
+
   filterContainer: { height: 50, marginBottom: 8 },
   filterPill: { paddingVertical: 8, paddingHorizontal: 20, borderRadius: 24, backgroundColor: COLORS.cardBg, marginRight: 8, borderWidth: 1, borderColor: COLORS.border, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 3, elevation: 2 },
   filterPillActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
@@ -351,10 +387,10 @@ const styles = StyleSheet.create({
   card: { backgroundColor: COLORS.cardBg, borderRadius: 20, marginBottom: 12, padding: 18, flexDirection: 'row', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 3, borderWidth: 1, borderColor: 'transparent' },
   cardSelectionMode: { transform: [{ scale: 0.98 }] },
   cardSelected: { borderColor: COLORS.selection, backgroundColor: '#F0F8FF' },
-  
+
   cardContent: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   selectionCheck: { marginRight: 16 },
-  
+
   timeContainer: { flex: 1 },
   timeText: { fontSize: 26, fontWeight: '700', color: COLORS.text, letterSpacing: -1 },
   textDisabled: { color: '#BDBDBD' },

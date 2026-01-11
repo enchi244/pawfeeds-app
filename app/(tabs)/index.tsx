@@ -1,3 +1,4 @@
+// DashboardScreen.tsx
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { Audio } from 'expo-av';
@@ -34,15 +35,17 @@ const COLORS = {
   lightGray: '#E0E0E0',
   white: '#FFFFFF',
   danger: '#D32F2F',
+  success: '#4CAF50',
+  warning: '#FF9800',
   overlay: 'rgba(0, 0, 0, 0.5)',
   offline: '#9E9E9E',
 };
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
-// Match this to the MAX_WEIGHT_GRAMS in your Arduino Code
 const MAX_CAPACITY = 1000; 
 
+// ... [Interfaces remain the same] ...
 interface Pet {
   id: string;
   name: string;
@@ -83,112 +86,122 @@ interface BowlCardProps {
   bowlStatus: BowlStatus | undefined;
 }
 
-// ... [Modified BowlCard Component] ...
+// ... [BowlCard Component remains the same] ...
 const BowlCard: React.FC<BowlCardProps> = ({ 
-  bowlNumber, 
-  selectedPet, 
-  foodLevel, // This is now coming in as grams (e.g., 500, 1000)
-  perMealPortion, 
-  onPressFeed, 
-  streamUri, 
-  isActive,
-  isFeederOnline,
-  bowlStatus
+    bowlNumber, 
+    selectedPet, 
+    foodLevel, 
+    perMealPortion, 
+    onPressFeed, 
+    streamUri, 
+    isActive,
+    isFeederOnline,
+    bowlStatus
 }) => {
-  const isUnassigned = !selectedPet;
-  const isFeedDisabled = isUnassigned || !isFeederOnline;
+    const isUnassigned = !selectedPet;
+    const isFeedDisabled = isUnassigned || !isFeederOnline;
+    const progressPercent = Math.min(100, Math.max(0, (foodLevel / MAX_CAPACITY) * 100));
 
-  // Calculate percentage for the visual progress bar width only
-  // (Current Weight / Max Capacity) * 100
-  const progressPercent = Math.min(100, Math.max(0, (foodLevel / MAX_CAPACITY) * 100));
+    useEffect(() => {
+        const setAudio = async () => {
+            await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+        };
+        setAudio();
+    }, []);
 
-  useEffect(() => {
-    const setAudio = async () => {
-      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+    const handleError = (error: any) => {
+        if (isActive) {
+          console.log(`[Stream Error Bowl ${bowlNumber}]`, error);
+        }
     };
-    setAudio();
-  }, []);
 
-  const handleError = (error: any) => {
-    if (isActive) {
-      console.error(`[VLC Player Bowl ${bowlNumber}] Playback Error:`, error);
-    }
-  };
-
-  return (
-    <View style={[styles.card, { width: CARD_WIDTH }]}>
-      <View style={styles.cardHeader}>
-        <View style={styles.cardTitleContainer}>
-            <Text style={[styles.cardTitle, isUnassigned && { color: '#999' }]}>
-              {`Bowl ${bowlNumber} - ${selectedPet?.name || 'No Pet Assigned'}`}
-            </Text>
-        </View>
-        <View style={[styles.onlineIndicator, { backgroundColor: isFeederOnline ? '#4CAF50' : COLORS.offline }]} />
-      </View>
-
-      <View style={styles.videoFeedPlaceholder}>
-        {streamUri ? (
-          <>
-            {isActive && (
-              <VLCPlayer
-                style={styles.video}
-                source={{ uri: streamUri }}
-                resizeMode="cover"
-                muted={true}
-                paused={false}
-                onError={handleError}
-                videoAspectRatio={`${16}:${9}`}
-              />
-            )}
-          </>
-        ) : (
-          <View style={styles.videoOverlay}>
-              <MaterialCommunityIcons name="camera-off-outline" size={32} color="#999" />
-              <Text style={styles.videoFeedText}>Live Feed Unavailable</Text>
+    return (
+      <View style={[styles.card, { width: CARD_WIDTH }]}>
+        <View style={styles.cardHeader}>
+          <View style={styles.cardTitleContainer}>
+              <Text style={[styles.cardTitle, isUnassigned && { color: '#999' }]}>
+                {`Bowl ${bowlNumber} - ${selectedPet?.name || 'No Pet Assigned'}`}
+              </Text>
           </View>
-        )}
-      </View>
-
-      <View style={styles.statusContainer}>
-        <Text style={styles.statusLabel}>Food Level (Grams)</Text>
-        <View style={styles.progressBarBackground}>
-          {/* Use the calculated percentage for width */}
-          <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+          <View style={[styles.onlineIndicator, { backgroundColor: isFeederOnline ? '#4CAF50' : COLORS.offline }]} />
         </View>
-        {/* Display the actual grams */}
-        <Text style={styles.statusPercentage}>{foodLevel}g / {MAX_CAPACITY}g</Text>
-      </View>
 
-      <TouchableOpacity 
-        style={[styles.feedButton, isFeedDisabled && styles.disabledButton]} 
-        onPress={onPressFeed} 
-        disabled={isFeedDisabled}
-      >
-        <Text style={styles.feedButtonText}>
-          {isFeederOnline 
-            ? (isUnassigned ? 'No Pet Assigned' : 'Feed Now') 
-            : 'Feeder Offline'}
+        <View style={styles.videoFeedPlaceholder}>
+          {streamUri ? (
+            <>
+              {isActive && (
+                <VLCPlayer
+                  style={styles.video}
+                  source={{ uri: streamUri }}
+                  resizeMode="cover"
+                  muted={true}
+                  paused={false}
+                  onError={handleError}
+                  videoAspectRatio={`${16}:${9}`}
+                />
+              )}
+            </>
+          ) : (
+            <View style={styles.videoOverlay}>
+                <MaterialCommunityIcons name="camera-off-outline" size={32} color="#999" />
+                <Text style={styles.videoFeedText}>Live Feed Unavailable</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.statusContainer}>
+          <Text style={styles.statusLabel}>Meal Status (Leftovers)</Text>
+          <View style={styles.progressBarBackground}>
+            <View style={[
+                styles.progressBarFill, 
+                { 
+                    width: `${progressPercent}%`,
+                    backgroundColor: foodLevel > 0 ? COLORS.warning : COLORS.success 
+                }
+            ]} />
+          </View>
+          <Text style={[
+              styles.statusPercentage,
+              { color: foodLevel > 0 ? COLORS.warning : COLORS.success, fontWeight: 'bold' }
+          ]}>
+            {foodLevel > 0 
+                ? `${foodLevel}g Missed / Leftover` 
+                : 'Bowl Cleared! (0g)'}
+          </Text>
+        </View>
+
+        <TouchableOpacity 
+          style={[styles.feedButton, isFeedDisabled && styles.disabledButton]} 
+          onPress={onPressFeed} 
+          disabled={isFeedDisabled}
+        >
+          <Text style={styles.feedButtonText}>
+            {isFeederOnline 
+                ? (bowlStatus?.isWaiting 
+                    ? `Feed Pending Meal (${bowlStatus.amount}g)` 
+                    : (isUnassigned ? 'No Pet Assigned' : 'Feed Now')) 
+                : 'Feeder Offline'}
+          </Text>
+        </TouchableOpacity>
+
+        <Text style={styles.portionText}>
+          {`Next scheduled meal: ${perMealPortion > 0 ? perMealPortion : '--'}g`}
         </Text>
-      </TouchableOpacity>
-
-      <Text style={styles.portionText}>
-        {`Next scheduled meal: ${perMealPortion > 0 ? perMealPortion : '--'}g`}
-      </Text>
-    </View>
-  );
+      </View>
+    );
 };
 
 const formatScheduleTime = (timeString: string): string => {
-  if (!timeString) return 'Invalid Time';
-  const [hours, minutes] = timeString.split(':').map(Number);
-  if (isNaN(hours) || isNaN(minutes)) return 'Invalid Time';
+    if (!timeString) return 'Invalid Time';
+    const [hours, minutes] = timeString.split(':').map(Number);
+    if (isNaN(hours) || isNaN(minutes)) return 'Invalid Time';
 
-  const date = new Date();
-  date.setHours(hours, minutes);
+    const date = new Date();
+    date.setHours(hours, minutes);
 
-  return date.toLocaleTimeString('en-US', {
-    hour: '2-digit', minute: '2-digit', hour12: true
-  });
+    return date.toLocaleTimeString('en-US', {
+        hour: '2-digit', minute: '2-digit', hour12: true
+    });
 };
 
 export default function DashboardScreen() {
@@ -212,23 +225,21 @@ export default function DashboardScreen() {
   const [isFeedModalVisible, setIsFeedModalVisible] = useState(false);
   const [selectedBowlForAction, setSelectedBowlForAction] = useState<number | null>(null);
   const [customAmount, setCustomAmount] = useState('');
-
   const [isCustomFeedVisible, setIsCustomFeedVisible] = useState(false);
-
   const [isResetSelectionVisible, setIsResetSelectionVisible] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const PUBLIC_HLS_SERVER_DOMAIN = 'workspherecbd.site';
   
+  // --- DYNAMIC IP STATE ---
   const [streamUris, setStreamUris] = useState<{ [bowlId: string]: string | null }>({
-    '1': `https://${PUBLIC_HLS_SERVER_DOMAIN}/hls/stream1.m3u8`,
-    '2': `https://${PUBLIC_HLS_SERVER_DOMAIN}/hls/stream2.m3u8`,
+    '1': null,
+    '2': null,
   });
 
   const [foodLevels, setFoodLevels] = useState<{ [bowlId: string]: number }>({});
   const bowlsConfig = [{ id: 1 }, { id: 2 }];
 
-  // ... [Keep useEffects for fetching feeders, status, pets, schedules exactly as is] ...
   useEffect(() => {
     if (!user) {
       setIsLoading(false);
@@ -273,7 +284,9 @@ export default function DashboardScreen() {
     setIsLoading(true);
     const unsubscribes: Unsubscribe[] = [];
     const rtdbUnsubscribes: (() => void)[] = [];
+    const rtdb = getDatabase();
 
+    // 1. Listen for Firestore Data
     const feederDocRef = doc(db, 'feeders', feederId);
     const feederUnsub = onSnapshot(feederDocRef, (doc) => {
         if (doc.exists()) {
@@ -282,12 +295,10 @@ export default function DashboardScreen() {
         } else {
             setIsFeederOnline(false);
         }
-    }, (error) => {
-        console.error("Feeder doc snapshot error:", error);
     });
     unsubscribes.push(feederUnsub);
 
-    const rtdb = getDatabase();
+    // 2. Listen for RTDB Status
     const statusRef = ref(rtdb, `feeders/${feederId}/status`);
     const statusUnsub = onValue(statusRef, (snapshot) => {
         const status = snapshot.val();
@@ -295,6 +306,7 @@ export default function DashboardScreen() {
     });
     rtdbUnsubscribes.push(() => statusUnsub()); 
 
+    // 3. Listen for Bowl Status
     const bowlStatusRef = ref(rtdb, `feeders/${feederId}/bowlStatus`);
     const bowlStatusUnsub = onValue(bowlStatusRef, (snapshot) => {
         if (snapshot.exists()) {
@@ -304,6 +316,31 @@ export default function DashboardScreen() {
         }
     });
     rtdbUnsubscribes.push(() => bowlStatusUnsub());
+
+    // --- 4. NEW: DYNAMIC CAM IP LISTENER ---
+    // We listen for camIp1 and camIp2 in RTDB
+    const camIpRef1 = ref(rtdb, `feeders/${feederId}/camIp1`);
+    const camIpUnsub1 = onValue(camIpRef1, (snapshot) => {
+        const ip = snapshot.val();
+        setStreamUris(prev => ({
+            ...prev,
+            '1': ip ? `http://${ip}/stream` : `https://${PUBLIC_HLS_SERVER_DOMAIN}/hls/stream1.m3u8`
+        }));
+    });
+    rtdbUnsubscribes.push(() => camIpUnsub1());
+
+    const camIpRef2 = ref(rtdb, `feeders/${feederId}/camIp2`);
+    const camIpUnsub2 = onValue(camIpRef2, (snapshot) => {
+        const ip = snapshot.val();
+        // Fallback to mDNS if no IP is uploaded yet
+        const mDNSFallback = `http://pawfeeds-cam-2.local/stream`; 
+        setStreamUris(prev => ({
+            ...prev,
+            '2': ip ? `http://${ip}/stream` : mDNSFallback
+        }));
+    });
+    rtdbUnsubscribes.push(() => camIpUnsub2());
+    // ----------------------------------------
 
     const petsRef = collection(db, 'feeders', feederId, 'pets');
     const petsUnsub = onSnapshot(petsRef, (snapshot) => {
@@ -438,7 +475,6 @@ export default function DashboardScreen() {
     handleMenuClose();
   };
 
-  // --- Handle Manual Navigation ---
   const handleManualPress = () => {
     handleMenuClose();
     router.push("/manual");
@@ -468,7 +504,23 @@ export default function DashboardScreen() {
          return;
     }
 
-    // REMOVED PENDING MEAL INTERCEPTION LOGIC HERE
+    const status = bowlStatuses[bowlNumber];
+    if (status?.isWaiting && status.amount) {
+        const petName = pets.find(p => p.id === status.petId)?.name || 'your pet';
+        
+        Alert.alert(
+            "Pending Meal",
+            `This bowl is waiting for ${petName}. Do you want to feed the scheduled ${status.amount}g now?`,
+            [
+                { text: "Cancel", style: "cancel" },
+                { 
+                    text: "Feed Scheduled Amount", 
+                    onPress: () => handleDispenseFeed(status.amount!, bowlNumber)
+                }
+            ]
+        );
+        return;
+    }
 
     setSelectedBowlForAction(bowlNumber);
     setIsCustomFeedVisible(false);
@@ -540,13 +592,12 @@ export default function DashboardScreen() {
           <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16} contentContainerStyle={styles.swiperContainer} decelerationRate="fast" snapToInterval={CARD_WIDTH + 20} snapToAlignment="start">
             {bowlsConfig.map((bowl, index) => {
                 const selectedPet = assignedPetsByBowl[bowl.id];
-                
                 const activeScheduleCount = selectedPet ? (activeSchedulesByPetId[selectedPet.id] || 0) : 0;
                 const perMealPortion = (selectedPet && selectedPet.recommendedPortion && activeScheduleCount > 0) ? Math.round(selectedPet.recommendedPortion / activeScheduleCount) : 0;
-                
-                const streamUri = streamUris[bowl.id] || null;
+                // --- MODIFIED: Use dynamic URI from state ---
+                const streamUri = streamUris[bowl.id.toString()] || null;
+                // --------------------------------------------
                 const foodLevel = foodLevels[bowl.id] ?? 0;
-                
                 return (
                     <BowlCard
                         key={bowl.id}
@@ -716,11 +767,16 @@ const styles = StyleSheet.create({
   modalSubtitle: { fontSize: 16, color: COLORS.text, marginBottom: 24, textAlign: 'center' },
   modalButton: { backgroundColor: COLORS.primary, borderRadius: 12, paddingVertical: 14, alignItems: 'center', width: '100%', marginBottom: 12 },
   modalButtonText: { fontSize: 16, fontWeight: 'bold', color: COLORS.white },
-  modalInput: { width: '100%', height: 50, borderWidth: 1, borderColor: COLORS.lightGray, borderRadius: 12, paddingHorizontal: 16, marginBottom: 16, fontSize: 16, color: COLORS.text },
-  selectionModalContent: { width: '90%', backgroundColor: COLORS.white, borderRadius: 20, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84, elevation: 5 },
-  customFeedToggle: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 10, paddingVertical: 8 },
-  customFeedToggleText: { fontSize: 16, color: COLORS.text, marginRight: 5, fontWeight: '500' },
-  customFeedContainer: { width: '100%', marginTop: 15, paddingTop: 15, borderTopWidth: 1, borderTopColor: COLORS.lightGray },
-  cancelButton: { marginTop: 10, paddingVertical: 10, alignItems: 'center' },
-  cancelButtonText: { fontSize: 16, color: '#999', fontWeight: '500' },
+  modalDivider: { color: '#aaa', fontWeight: 'bold', marginVertical: 8 },
+  modalInput: { width: '100%', backgroundColor: COLORS.background, borderWidth: 1, borderColor: COLORS.lightGray, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: COLORS.text, textAlign: 'center', marginVertical: 12 },
+  customFeedToggle: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.lightGray, marginVertical: 12 },
+  customFeedToggleText: { fontSize: 16, fontWeight: '600', color: COLORS.text },
+  customFeedContainer: { width: '100%', alignItems: 'center' },
+  cancelButton: { backgroundColor: 'transparent', marginTop: 10, alignSelf: 'center', padding: 10 },
+  cancelButtonText: { color: COLORS.danger, fontWeight: '600', fontSize: 16 },
+  unassignButton: { backgroundColor: COLORS.danger, borderWidth: 0},
+  selectionModalContent: { backgroundColor: COLORS.white, borderRadius: 12, padding: 20, width: '85%', maxHeight: '60%' },
+  selectionItem: { paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: COLORS.lightGray },
+  selectionItemText: { fontSize: 18, color: COLORS.text, textAlign: 'center' },
+  emptyListText: { textAlign: 'center', color: '#999', marginVertical: 20 },
 });
