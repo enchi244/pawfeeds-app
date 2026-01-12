@@ -1,4 +1,3 @@
-// DashboardScreen.tsx
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { Audio } from 'expo-av';
@@ -43,9 +42,7 @@ const COLORS = {
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width - 40;
-const MAX_CAPACITY = 1000; 
 
-// ... [Interfaces remain the same] ...
 interface Pet {
   id: string;
   name: string;
@@ -77,7 +74,9 @@ interface BowlStatus {
 interface BowlCardProps {
   bowlNumber: number;
   selectedPet: Pet | undefined;
-  foodLevel: number;
+  // foodLevel prop removed from usage but kept in signature if passed from parent, 
+  // or we can just ignore it since we aren't displaying it.
+  foodLevel: number; 
   perMealPortion: number;
   onPressFeed: () => void;
   streamUri: string | null;
@@ -86,11 +85,10 @@ interface BowlCardProps {
   bowlStatus: BowlStatus | undefined;
 }
 
-// ... [BowlCard Component remains the same] ...
+// [MODIFIED] BowlCard Component - Removed Food Level/Leftover Display
 const BowlCard: React.FC<BowlCardProps> = ({ 
     bowlNumber, 
     selectedPet, 
-    foodLevel, 
     perMealPortion, 
     onPressFeed, 
     streamUri, 
@@ -100,7 +98,6 @@ const BowlCard: React.FC<BowlCardProps> = ({
 }) => {
     const isUnassigned = !selectedPet;
     const isFeedDisabled = isUnassigned || !isFeederOnline;
-    const progressPercent = Math.min(100, Math.max(0, (foodLevel / MAX_CAPACITY) * 100));
 
     useEffect(() => {
         const setAudio = async () => {
@@ -149,26 +146,7 @@ const BowlCard: React.FC<BowlCardProps> = ({
           )}
         </View>
 
-        <View style={styles.statusContainer}>
-          <Text style={styles.statusLabel}>Meal Status (Leftovers)</Text>
-          <View style={styles.progressBarBackground}>
-            <View style={[
-                styles.progressBarFill, 
-                { 
-                    width: `${progressPercent}%`,
-                    backgroundColor: foodLevel > 0 ? COLORS.warning : COLORS.success 
-                }
-            ]} />
-          </View>
-          <Text style={[
-              styles.statusPercentage,
-              { color: foodLevel > 0 ? COLORS.warning : COLORS.success, fontWeight: 'bold' }
-          ]}>
-            {foodLevel > 0 
-                ? `${foodLevel}g Missed / Leftover` 
-                : 'Bowl Cleared! (0g)'}
-          </Text>
-        </View>
+        {/* Status Container Removed Here */}
 
         <TouchableOpacity 
           style={[styles.feedButton, isFeedDisabled && styles.disabledButton]} 
@@ -237,6 +215,7 @@ export default function DashboardScreen() {
     '2': null,
   });
 
+  // Keep tracking food levels for logic, even if not displayed
   const [foodLevels, setFoodLevels] = useState<{ [bowlId: string]: number }>({});
   const bowlsConfig = [{ id: 1 }, { id: 2 }];
 
@@ -295,6 +274,8 @@ export default function DashboardScreen() {
         } else {
             setIsFeederOnline(false);
         }
+    }, (error) => {
+        console.error("Feeder doc snapshot error:", error);
     });
     unsubscribes.push(feederUnsub);
 
@@ -318,7 +299,6 @@ export default function DashboardScreen() {
     rtdbUnsubscribes.push(() => bowlStatusUnsub());
 
     // --- 4. NEW: DYNAMIC CAM IP LISTENER ---
-    // We listen for camIp1 and camIp2 in RTDB
     const camIpRef1 = ref(rtdb, `feeders/${feederId}/camIp1`);
     const camIpUnsub1 = onValue(camIpRef1, (snapshot) => {
         const ip = snapshot.val();
@@ -332,7 +312,6 @@ export default function DashboardScreen() {
     const camIpRef2 = ref(rtdb, `feeders/${feederId}/camIp2`);
     const camIpUnsub2 = onValue(camIpRef2, (snapshot) => {
         const ip = snapshot.val();
-        // Fallback to mDNS if no IP is uploaded yet
         const mDNSFallback = `http://pawfeeds-cam-2.local/stream`; 
         setStreamUris(prev => ({
             ...prev,
@@ -594,9 +573,7 @@ export default function DashboardScreen() {
                 const selectedPet = assignedPetsByBowl[bowl.id];
                 const activeScheduleCount = selectedPet ? (activeSchedulesByPetId[selectedPet.id] || 0) : 0;
                 const perMealPortion = (selectedPet && selectedPet.recommendedPortion && activeScheduleCount > 0) ? Math.round(selectedPet.recommendedPortion / activeScheduleCount) : 0;
-                // --- MODIFIED: Use dynamic URI from state ---
-                const streamUri = streamUris[bowl.id.toString()] || null;
-                // --------------------------------------------
+                const streamUri = streamUris[bowl.id] || null;
                 const foodLevel = foodLevels[bowl.id] ?? 0;
                 return (
                     <BowlCard
@@ -729,12 +706,8 @@ const styles = StyleSheet.create({
   videoOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)' },
   videoOverlayText: { color: COLORS.white, marginTop: 8 },
   videoFeedText: { color: '#999', fontWeight: '500' },
-  statusContainer: { marginBottom: 16 },
-  statusLabel: { fontSize: 14, color: '#666', marginBottom: 6 },
-  progressBarBackground: { height: 10, backgroundColor: COLORS.lightGray, borderRadius: 5 },
-  progressBarFill: { height: '100%', backgroundColor: COLORS.primary, borderRadius: 5 },
-  statusPercentage: { textAlign: 'right', fontSize: 12, color: '#666', marginTop: 4 },
-  feedButton: { backgroundColor: COLORS.accent, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+  // statusContainer and related styles removed since they are no longer used
+  feedButton: { backgroundColor: COLORS.accent, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 12 },
   disabledButton: { backgroundColor: COLORS.lightGray },
   feedButtonText: { fontSize: 16, fontWeight: 'bold', color: COLORS.text },
   portionText: { textAlign: 'center', color: '#888', marginTop: 12, fontSize: 14, fontStyle: 'italic' },

@@ -99,6 +99,7 @@ export const scheduledFeedChecker = onSchedule(
     const now = new Date();
     const timeZone = "Asia/Singapore";
     
+    // --- TIME FORMATTING ---
     const formatterHour = new Intl.DateTimeFormat('en-US', { hour: '2-digit', hour12: false, timeZone });
     const formatterMinute = new Intl.DateTimeFormat('en-US', { minute: '2-digit', timeZone });
     
@@ -108,10 +109,32 @@ export const scheduledFeedChecker = onSchedule(
     const currentMinute = formatterMinute.format(now).padStart(2, '0');
     const currentTime = `${formattedHour}:${currentMinute}`;
     
-    const dayMap = ["U", "M", "T", "W", "R", "F", "S"];
-    const currentDay = dayMap[now.getDay()];
+    // --- DAY FORMATTING (FIXED) ---
+    // Previously used now.getDay() which is UTC. 
+    // Now we force the day retrieval to respect the Singapore Timezone.
+    const dayFormatter = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone }); 
+    const currentDayShort = dayFormatter.format(now); // "Sun", "Mon", "Tue"...
 
-    logger.info(`Current time in ${timeZone}: ${currentTime}, Day: ${currentDay}`);
+    // Map 'short' weekday names to your specific App codes:
+    // U=Sunday, M=Monday, T=Tuesday, W=Wednesday, R=Thursday, F=Friday, S=Saturday
+    const dayMap: { [key: string]: string } = {
+      "Sun": "U",
+      "Mon": "M",
+      "Tue": "T",
+      "Wed": "W",
+      "Thu": "R",
+      "Fri": "F",
+      "Sat": "S"
+    };
+
+    const currentDay = dayMap[currentDayShort];
+
+    if (!currentDay) {
+        logger.error(`Could not determine current day from '${currentDayShort}'`);
+        return;
+    }
+
+    logger.info(`Current time in ${timeZone}: ${currentTime}, Day: ${currentDay} (Raw: ${currentDayShort})`);
 
     try {
       const feedersSnapshot = await firestore.collection("feeders").get();
@@ -741,4 +764,3 @@ async function sendGenericPushNotification(uid: string, title: string, body: str
     logger.error(`Error sending Expo push notification to ${uid}:`, error);
   }
 }
-
